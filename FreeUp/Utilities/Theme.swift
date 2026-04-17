@@ -214,21 +214,52 @@ struct KBDAction: View {
     }
 }
 
-/// Shimmering placeholder block. Size it via `.frame(...)`; the
-/// animation is a gentle opacity pulse — subtle enough not to feel
-/// busy, clear enough to read as "loading".
+/// Skeleton placeholder with a true shimmer sweep — a soft highlight
+/// gradient moves left→right across the block on a continuous loop.
+/// Size it via `.frame(...)`; TimelineView drives a continuous phase
+/// without needing a pulsing @State.
 struct SkeletonBlock: View {
     var cornerRadius: CGFloat = 4
 
-    @State private var pulsing = false
+    // Base fill sits slightly above the background so the block is
+    // visible even when the shimmer streak is off-canvas.
+    private let baseOpacity: Double = 0.07
+    private let streakOpacity: Double = 0.18
+    private let period: Double = 1.6 // seconds per sweep
 
     var body: some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(Color.primary.opacity(pulsing ? 0.12 : 0.05))
-            .animation(
-                .easeInOut(duration: 1.1).repeatForever(autoreverses: true),
-                value: pulsing
-            )
-            .onAppear { pulsing = true }
+        GeometryReader { geo in
+            let w = geo.size.width
+            // Streak is half the block width — narrower looks busier,
+            // wider loses the "sweep" feel.
+            let streakW = max(40, w * 0.55)
+
+            TimelineView(.animation) { context in
+                // 0…1 progress through the current sweep.
+                let t = context.date.timeIntervalSinceReferenceDate
+                    .truncatingRemainder(dividingBy: period) / period
+
+                // Travel from -streakW (fully off-left) to w+streakW (fully off-right).
+                let offset = -streakW + CGFloat(t) * (w + streakW * 2)
+
+                ZStack {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(Color.primary.opacity(baseOpacity))
+
+                    LinearGradient(
+                        colors: [
+                            .clear,
+                            Color.primary.opacity(streakOpacity),
+                            .clear
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(width: streakW)
+                    .offset(x: offset - w / 2 + streakW / 2)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            }
+        }
     }
 }
