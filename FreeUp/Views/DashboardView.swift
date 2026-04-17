@@ -363,37 +363,50 @@ private struct OverviewPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(spacing: 0) {
+            // Empty state (no scan yet) is vertically centered in the whole
+            // pane — no ScrollView, no top-aligned dead space.
+            if !hasResults && !isScanning {
+                VStack {
+                    Spacer()
                     hero
-                        .padding(.top, 48)
-                        .padding(.bottom, 40)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        hero
+                            .padding(.top, 48)
+                            .padding(.bottom, 40)
 
-                    if hasResults {
-                        Hairline()
-                        categoriesList
+                        if hasResults {
+                            Hairline()
+                            categoriesList
+                        }
+
+                        Spacer(minLength: 24)
                     }
-
-                    Spacer(minLength: 24)
                 }
-            }
-            .scrollContentBackground(.hidden)
-            .onAppear { displayedReclaimable = reclaimable }
-            .onChange(of: isScanning) { _, scanning in
-                // Snap to the real value the moment scanning ends so the
-                // final digit-roll animation lands on the true total.
-                if !scanning { displayedReclaimable = reclaimable }
-            }
-            .onReceive(throttleTimer) { _ in
-                // Adopt the latest target each tick. SwiftUI's diffing
-                // means no-op when they're equal. Animation is triggered
-                // by .animation(..., value: displayedReclaimable) below.
-                if displayedReclaimable != reclaimable {
-                    displayedReclaimable = reclaimable
-                }
-            }
+                .scrollContentBackground(.hidden)
 
-            bottomBar
+                // CommandBar only shows when there's context — results or
+                // an active scan. In the empty state the hero's own CTA
+                // is plenty; a second bar would read as noise.
+                bottomBar
+            }
+        }
+        .onAppear { displayedReclaimable = reclaimable }
+        .onChange(of: isScanning) { _, scanning in
+            // Snap to the real value the moment scanning ends so the
+            // final digit-roll animation lands on the true total.
+            if !scanning { displayedReclaimable = reclaimable }
+        }
+        .onReceive(throttleTimer) { _ in
+            // Adopt the latest target each tick. SwiftUI's diffing
+            // means no-op when they're equal.
+            if displayedReclaimable != reclaimable {
+                displayedReclaimable = reclaimable
+            }
         }
     }
 
@@ -519,27 +532,40 @@ private struct OverviewPane: View {
     }
 
     private var firstRunHero: some View {
-        VStack(spacing: 14) {
-            Text("READY")
-                .font(FUFont.eyebrow)
-                .kerning(1.2)
-                .foregroundStyle(.tertiary)
+        VStack(spacing: 18) {
+            // Large accent-tinted icon square — gives the empty state an
+            // anchor instead of a sad gray "0 B".
+            IconSquare(
+                systemName: "magnifyingglass",
+                color: Color.accentColor,
+                size: 64,
+                cornerRadius: 16
+            )
 
-            Text("0 B")
-                .font(FUFont.hero)
-                .foregroundStyle(.tertiary)
+            VStack(spacing: 6) {
+                Text("Scan your Mac")
+                    .font(FUFont.titleLarge)
+                    .foregroundStyle(.primary)
+
+                Text("Find caches, logs, duplicates, and junk that you can safely remove.")
+                    .font(FUFont.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 300)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             Button {
                 Task { await viewModel.startScan() }
             } label: {
                 HStack(spacing: 10) {
-                    Text("Scan")
+                    Text("Start Scan")
                         .font(FUFont.bodySemibold)
                     KBDPill("⌘R")
                 }
                 .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 9)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(Color.accentColor)
@@ -547,10 +573,7 @@ private struct OverviewPane: View {
             }
             .buttonStyle(.plain)
             .keyboardShortcut("r", modifiers: .command)
-
-            Text("Finds caches, logs, duplicates, and junk across your Mac.")
-                .font(FUFont.caption)
-                .foregroundStyle(.tertiary)
+            .padding(.top, 2)
         }
         .frame(maxWidth: .infinity)
     }

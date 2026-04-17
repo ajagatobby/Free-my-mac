@@ -558,42 +558,37 @@ struct SourceSectionHeader: View {
 /// layout so switching to a category feels instant even while the off-main
 /// sort/group pipeline runs.
 struct CategorySkeletonList: View {
-    // Vary widths so rows don't look like a repeated template.
     private let rowWidths: [CGFloat] = [160, 120, 180, 140, 100, 150]
 
     var body: some View {
         VStack(spacing: 0) {
-            ForEach(Array(rowWidths.enumerated()), id: \.offset) { _, width in
-                skeletonRow(nameWidth: width)
+            ForEach(Array(rowWidths.enumerated()), id: \.offset) { idx, width in
+                // Per-row phase offset so the shimmer sweep cascades down
+                // the list instead of every row flashing in lockstep.
+                skeletonRow(nameWidth: width, phase: Double(idx) * 0.11)
                 Hairline().opacity(0.5)
             }
             Spacer(minLength: 0)
         }
-        .padding(.top, 0)
     }
 
-    private func skeletonRow(nameWidth: CGFloat) -> some View {
+    private func skeletonRow(nameWidth: CGFloat, phase: Double) -> some View {
         HStack(spacing: 10) {
-            // Chevron placeholder
-            SkeletonBlock(cornerRadius: 2)
+            SkeletonBlock(cornerRadius: 2, phase: phase)
                 .frame(width: 8, height: 8)
 
-            // Name placeholder
-            SkeletonBlock()
+            SkeletonBlock(phase: phase)
                 .frame(width: nameWidth, height: 13)
 
             Spacer(minLength: 8)
 
-            // Count placeholder
-            SkeletonBlock()
+            SkeletonBlock(phase: phase)
                 .frame(width: 42, height: 11)
 
-            // Size placeholder
-            SkeletonBlock()
+            SkeletonBlock(phase: phase)
                 .frame(width: 64, height: 12)
 
-            // Trailing icon placeholder
-            SkeletonBlock(cornerRadius: 6)
+            SkeletonBlock(cornerRadius: 6, phase: phase)
                 .frame(width: 14, height: 14)
         }
         .padding(.horizontal, 20)

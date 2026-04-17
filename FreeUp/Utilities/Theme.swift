@@ -214,33 +214,35 @@ struct KBDAction: View {
     }
 }
 
-/// Skeleton placeholder with a true shimmer sweep — a soft highlight
-/// gradient moves left→right across the block on a continuous loop.
-/// Size it via `.frame(...)`; TimelineView drives a continuous phase
-/// without needing a pulsing @State.
+/// Skeleton placeholder with a shimmer sweep. A soft highlight streak
+/// travels left→right across the block on a 1.5s loop. Pass `phase`
+/// (0…1) to stagger multiple blocks so the whole list doesn't pulse
+/// in lockstep — e.g. `phase: Double(index) * 0.12`.
 struct SkeletonBlock: View {
     var cornerRadius: CGFloat = 4
+    /// Phase offset 0…1. Each +0.1 is roughly a 150ms head start.
+    var phase: Double = 0
 
-    // Base fill sits slightly above the background so the block is
-    // visible even when the shimmer streak is off-canvas.
-    private let baseOpacity: Double = 0.07
-    private let streakOpacity: Double = 0.18
-    private let period: Double = 1.6 // seconds per sweep
+    private let baseOpacity: Double = 0.09
+    private let streakOpacity: Double = 0.22
+    private let period: Double = 1.5
 
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
-            // Streak is half the block width — narrower looks busier,
-            // wider loses the "sweep" feel.
-            let streakW = max(40, w * 0.55)
+            let h = geo.size.height
+            // Streak is ~55% of block width — wide enough to feel like a
+            // real light sweep, narrow enough to actually travel across.
+            let streakW: CGFloat = max(48, w * 0.55)
 
             TimelineView(.animation) { context in
-                // 0…1 progress through the current sweep.
-                let t = context.date.timeIntervalSinceReferenceDate
-                    .truncatingRemainder(dividingBy: period) / period
+                let raw = context.date.timeIntervalSinceReferenceDate / period + phase
+                let t = raw.truncatingRemainder(dividingBy: 1.0)
 
-                // Travel from -streakW (fully off-left) to w+streakW (fully off-right).
-                let offset = -streakW + CGFloat(t) * (w + streakW * 2)
+                // Streak center goes from -streakW/2 (fully off-left) to
+                // w + streakW/2 (fully off-right), so the sweep enters and
+                // exits cleanly through the clip.
+                let xCenter = -streakW / 2 + CGFloat(t) * (w + streakW)
 
                 ZStack {
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -255,8 +257,8 @@ struct SkeletonBlock: View {
                         startPoint: .leading,
                         endPoint: .trailing
                     )
-                    .frame(width: streakW)
-                    .offset(x: offset - w / 2 + streakW / 2)
+                    .frame(width: streakW, height: h)
+                    .position(x: xCenter, y: h / 2)
                 }
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
