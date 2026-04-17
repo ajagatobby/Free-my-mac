@@ -59,10 +59,8 @@ struct DashboardView: View {
                 .background(Color(.windowBackgroundColor))
         }
         .background(Color(.windowBackgroundColor))
-        // Hidden titlebar still reserves a ~28pt safe area above content;
-        // opt out so panes start flush. The sidebar carves out its own
-        // 36pt traffic-lights gap internally.
         .ignoresSafeArea(.all, edges: .top)
+        .disableFullScreen()
         .alert("Free Up Space", isPresented: $showCleanupConfirmation) {
             Button("Cancel", role: .cancel) { }
             Button(cleanupActionTitle, role: .destructive) {

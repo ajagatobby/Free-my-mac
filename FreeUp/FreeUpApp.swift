@@ -80,12 +80,13 @@ struct FreeUpApp: App {
     var body: some Scene {
         WindowGroup {
             DashboardView(viewModel: scanViewModel)
-                .frame(minWidth: 1000, minHeight: 650)
+                .frame(minWidth: 880, minHeight: 580)
         }
         .modelContainer(sharedModelContainer)
         // Hidden title bar so the traffic lights overlay the sidebar's top
         // padding — same pattern Linear/Raycast/Notion use.
         .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentMinSize)
         .commands {
             // File menu commands
             CommandGroup(replacing: .newItem) {
