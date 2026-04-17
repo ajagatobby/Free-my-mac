@@ -2,9 +2,9 @@
 //  CategoryCard.swift
 //  FreeUp
 //
-//  Minimal sidebar row. 6px dot + full category name + mono size.
-//  Size line wraps below name if there's not enough horizontal room,
-//  rather than truncating the name.
+//  Raycast-style sidebar row. Colored rounded icon square + title +
+//  mono size. Selection is a translucent white@8% fill, not a solid
+//  accent bar.
 //
 
 import SwiftUI
@@ -20,11 +20,15 @@ struct SidebarCategoryRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                CategoryDot(color: category.themeColor)
+                IconSquare(
+                    systemName: category.iconName,
+                    color: category.themeColor,
+                    size: 22
+                )
 
                 Text(category.rawValue)
                     .font(FUFont.body)
-                    .foregroundStyle(isSelected ? Color.white : Color.primary)
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .layoutPriority(1)
@@ -34,7 +38,7 @@ struct SidebarCategoryRow: View {
                 if let stats, stats.totalSize > 0 {
                     Text(ByteFormatter.format(stats.totalSize))
                         .font(FUFont.monoCaption)
-                        .foregroundStyle(isSelected ? Color.white.opacity(0.85) : Color(.tertiaryLabelColor))
+                        .foregroundStyle(.secondary)
                 }
             }
             .padding(.vertical, 5)
@@ -50,8 +54,8 @@ struct SidebarCategoryRow: View {
     }
 
     private var backgroundFill: Color {
-        if isSelected { return Color.accentColor }
-        if isHovered { return Color(.quaternaryLabelColor).opacity(0.4) }
+        if isSelected { return Color.primary.opacity(0.10) }
+        if isHovered { return Color.primary.opacity(0.05) }
         return .clear
     }
 }

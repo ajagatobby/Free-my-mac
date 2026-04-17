@@ -91,18 +91,9 @@ struct DuplicatesView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(.windowBackgroundColor))
 
-            if !selectedForDeletion.isEmpty {
-                Hairline()
-                DuplicateActionBar(
-                    selectedCount: selectedForDeletion.count,
-                    selectedSize: totalSelectedSize,
-                    isDeleting: viewModel.isDeletingFiles,
-                    onDelete: { showDeleteConfirmation = true },
-                    onDeselect: { selectedForDeletion.removeAll() }
-                )
-            }
+            bottomBar
         }
-        .background(Color(.windowBackgroundColor))
+        .background(Color.clear)
         .alert("Delete duplicates", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) { }
             Button("Delete \(selectedForDeletion.count) files", role: .destructive) {
@@ -217,6 +208,66 @@ struct DuplicatesView: View {
     }
 
     // MARK: Actions
+
+    // MARK: Bottom bar
+
+    private var bottomBar: some View {
+        CommandBar {
+            if !selectedForDeletion.isEmpty {
+                HStack(spacing: 6) {
+                    Text("\(selectedForDeletion.count)")
+                        .font(FUFont.bodyMedium)
+                        .foregroundStyle(.primary)
+                    Text("selected")
+                        .font(FUFont.caption)
+                        .foregroundStyle(.tertiary)
+                    Text("·").foregroundStyle(.quaternary)
+                    Text(ByteFormatter.format(totalSelectedSize))
+                        .font(FUFont.mono)
+                        .foregroundStyle(Color.accentColor)
+                }
+            } else {
+                HStack(spacing: 6) {
+                    Text(ByteFormatter.format(viewModel.duplicateWastedSpace))
+                        .font(FUFont.mono)
+                        .foregroundStyle(.primary)
+                    Text("wasted")
+                        .font(FUFont.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        } trailing: {
+            HStack(spacing: 16) {
+                if !selectedForDeletion.isEmpty {
+                    Button { showDeleteConfirmation = true } label: {
+                        HStack(spacing: 6) {
+                            Text(viewModel.isDeletingFiles ? "Deleting…" : "Delete")
+                                .font(FUFont.captionMedium)
+                                .foregroundStyle(Color(nsColor: .systemRed))
+                            KBDPill("⏎")
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(viewModel.isDeletingFiles)
+                    .keyboardShortcut(.defaultAction)
+
+                    Button {
+                        selectedForDeletion.removeAll()
+                    } label: {
+                        KBDAction(label: "Clear", glyph: "⎋")
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.cancelAction)
+                } else {
+                    Button { autoSelectDuplicates() } label: {
+                        KBDAction(label: "Auto-select", glyph: "⌘A", color: Color.accentColor)
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut("a", modifiers: .command)
+                }
+            }
+        }
+    }
 
     private func autoSelectDuplicates() {
         selectedForDeletion.removeAll()
@@ -416,63 +467,4 @@ struct DuplicateFileRow: View {
     }
 }
 
-// MARK: - Action bar
-
-struct DuplicateActionBar: View {
-    let selectedCount: Int
-    let selectedSize: Int64
-    let isDeleting: Bool
-    let onDelete: () -> Void
-    let onDeselect: () -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Text("\(selectedCount)")
-                .font(FUFont.bodyMedium)
-                .foregroundStyle(.primary)
-
-            Text("duplicates selected")
-                .font(FUFont.caption)
-                .foregroundStyle(.tertiary)
-
-            Text("·")
-                .foregroundStyle(.quaternary)
-
-            Text(ByteFormatter.format(selectedSize))
-                .font(FUFont.mono)
-                .foregroundStyle(Color.accentColor)
-
-            Spacer()
-
-            if isDeleting {
-                ProgressView().controlSize(.small)
-            }
-
-            Button("Deselect", action: onDeselect)
-                .buttonStyle(.plain)
-                .font(FUFont.captionMedium)
-                .foregroundStyle(.secondary)
-
-            Button(action: onDelete) {
-                HStack(spacing: 6) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 11, weight: .medium))
-                    Text("Delete duplicates")
-                        .font(.system(size: 12, weight: .semibold))
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color(nsColor: .systemRed))
-                )
-            }
-            .buttonStyle(.plain)
-            .disabled(isDeleting)
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 10)
-        .background(Color(.windowBackgroundColor))
-    }
-}
+// (DuplicateActionBar removed — CommandBar in DuplicatesView replaces it.)

@@ -73,23 +73,9 @@ struct CategoryDetailView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(.windowBackgroundColor))
 
-            if localSelectedCount > 0 {
-                Hairline()
-                SelectionActionBar(
-                    selectedCount: localSelectedCount,
-                    selectedSize: localSelectedSize,
-                    isDeleting: viewModel.isDeletingFiles,
-                    onDelete: {
-                        Task {
-                            await viewModel.deleteSelectedFiles(from: category)
-                            recomputeSelectionFromScratch()
-                        }
-                    },
-                    onDeselect: { deselectAll() }
-                )
-            }
+            bottomBar
         }
-        .background(Color(.windowBackgroundColor))
+        .background(Color.clear)
         .alert("Clone detected", isPresented: $showCloneWarning) {
             Button("OK") { }
         } message: {
@@ -103,35 +89,102 @@ struct CategoryDetailView: View {
     // MARK: Header — minimal. No icon tile. Mono numbers.
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                CategoryDot(color: category.themeColor, size: 7)
-                Text(category.rawValue.uppercased())
-                    .font(FUFont.eyebrow)
-                    .foregroundStyle(.tertiary)
+        VStack(alignment: .leading, spacing: 10) {
+            Color.clear.frame(height: 20) // traffic lights room
+
+            HStack(spacing: 10) {
+                IconSquare(systemName: category.iconName, color: category.themeColor, size: 26)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(category.rawValue)
+                        .font(FUFont.title)
+                        .foregroundStyle(.primary)
+                    Text("\(totalFileCount) files · \(ByteFormatter.format(totalSize))")
+                        .font(FUFont.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
                 if localSelectedCount > 0 {
-                    Text("\(localSelectedCount) selected · \(ByteFormatter.format(localSelectedSize))")
-                        .font(FUFont.monoCaption)
-                        .foregroundStyle(Color.accentColor)
+                    HStack(spacing: 6) {
+                        Text("\(localSelectedCount)")
+                            .font(FUFont.bodyMedium)
+                            .foregroundStyle(Color.accentColor)
+                        Text("selected")
+                            .font(FUFont.caption)
+                            .foregroundStyle(.tertiary)
+                        Text("·").foregroundStyle(.quaternary)
+                        Text(ByteFormatter.format(localSelectedSize))
+                            .font(FUFont.mono)
+                            .foregroundStyle(Color.accentColor)
+                    }
                 }
-            }
-
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(ByteFormatter.format(totalSize))
-                    .font(FUFont.heroSmall)
-                    .foregroundStyle(.primary)
-
-                Text("\(totalFileCount) files")
-                    .font(FUFont.bodyMedium)
-                    .foregroundStyle(.secondary)
-
-                Spacer()
             }
         }
         .padding(.horizontal, 20)
         .padding(.top, 14)
-        .padding(.bottom, 12)
+        .padding(.bottom, 14)
+    }
+
+    private var bottomBar: some View {
+        CommandBar {
+            if localSelectedCount > 0 {
+                HStack(spacing: 6) {
+                    Text("\(localSelectedCount)")
+                        .font(FUFont.bodyMedium)
+                        .foregroundStyle(.primary)
+                    Text("selected")
+                        .font(FUFont.caption)
+                        .foregroundStyle(.tertiary)
+                    Text("·").foregroundStyle(.quaternary)
+                    Text(ByteFormatter.format(localSelectedSize))
+                        .font(FUFont.mono)
+                        .foregroundStyle(Color.accentColor)
+                }
+            } else {
+                Text("\(totalFileCount) items")
+                    .font(FUFont.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        } trailing: {
+            HStack(spacing: 16) {
+                if localSelectedCount > 0 {
+                    Button {
+                        Task {
+                            await viewModel.deleteSelectedFiles(from: category)
+                            recomputeSelectionFromScratch()
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(viewModel.isDeletingFiles ? "Deleting…" : "Delete")
+                                .font(FUFont.captionMedium)
+                                .foregroundStyle(Color(nsColor: .systemRed))
+                            KBDPill("⏎")
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(viewModel.isDeletingFiles)
+                    .keyboardShortcut(.defaultAction)
+
+                    Button {
+                        deselectAll()
+                    } label: {
+                        KBDAction(label: "Clear", glyph: "⎋")
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.cancelAction)
+                }
+
+                Button {
+                    if localSelectedCount == totalFileCount { deselectAll() } else { selectAll() }
+                } label: {
+                    KBDAction(
+                        label: localSelectedCount == totalFileCount ? "Deselect all" : "Select all",
+                        glyph: "⌘A"
+                    )
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut("a", modifiers: .command)
+            }
+        }
     }
 
     // MARK: Toolbar
@@ -505,63 +558,4 @@ struct SourceSectionHeader: View {
     }
 }
 
-// MARK: - Selection action bar
-
-struct SelectionActionBar: View {
-    let selectedCount: Int
-    let selectedSize: Int64
-    var isDeleting: Bool = false
-    let onDelete: () -> Void
-    let onDeselect: () -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Text("\(selectedCount)")
-                .font(FUFont.bodyMedium)
-                .foregroundStyle(.primary)
-
-            Text("selected")
-                .font(FUFont.caption)
-                .foregroundStyle(.tertiary)
-
-            Text("·")
-                .foregroundStyle(.quaternary)
-
-            Text(ByteFormatter.format(selectedSize))
-                .font(FUFont.mono)
-                .foregroundStyle(Color.accentColor)
-
-            Spacer()
-
-            if isDeleting {
-                ProgressView().controlSize(.small)
-            }
-
-            Button("Deselect", action: onDeselect)
-                .buttonStyle(.plain)
-                .font(FUFont.captionMedium)
-                .foregroundStyle(.secondary)
-
-            Button(action: onDelete) {
-                HStack(spacing: 6) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 11, weight: .medium))
-                    Text("Delete")
-                        .font(.system(size: 12, weight: .semibold))
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color(nsColor: .systemRed))
-                )
-            }
-            .buttonStyle(.plain)
-            .disabled(isDeleting)
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 10)
-        .background(Color(.windowBackgroundColor))
-    }
-}
+// (SelectionActionBar removed — CommandBar in CategoryDetailView replaces it.)

@@ -2,12 +2,11 @@
 //  DashboardView.swift
 //  FreeUp
 //
-//  Custom two-pane layout — no NavigationSplitView, no .sidebar material
-//  that leaks the desktop wallpaper through. Plain HStack with a solid
-//  sidebar on the left and a hairline separator.
-//
-//  The window uses .hiddenTitleBar so the traffic lights overlay the
-//  sidebar's top padding. Gives a unified, modern look like Linear/Raycast.
+//  Raycast-style chrome.
+//  - Translucent window (.ultraThinMaterial backdrop)
+//  - Custom sidebar with colored rounded icon squares per category
+//  - Persistent bottom CommandBar on the detail pane with ⏎ hints
+//  - Dense rows, translucent selection, Inter throughout
 //
 
 import SwiftUI
@@ -47,18 +46,25 @@ struct DashboardView: View {
                 sortedCategories: sortedCategories,
                 isScanning: isScanning
             )
-            .frame(width: 248)
+            .frame(width: 256)
+            .background(
+                // Slightly more opaque so the sidebar stays readable against
+                // any wallpaper. The main pane carries the lighter vibrancy.
+                Color.primary.opacity(0.02)
+                    .background(.regularMaterial)
+            )
 
-            // Solid vertical hairline between panes.
             Rectangle()
-                .fill(Color(.separatorColor))
+                .fill(Color.primary.opacity(0.08))
                 .frame(width: 1)
                 .ignoresSafeArea()
 
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(.ultraThinMaterial)
         }
-        .background(Color(.windowBackgroundColor))
+        .background(Color.clear)
+        .transparentWindow()
         .alert("Free Up Space", isPresented: $showCleanupConfirmation) {
             Button("Cancel", role: .cancel) { }
             Button(cleanupActionTitle, role: .destructive) {
@@ -166,7 +172,7 @@ private struct Sidebar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Top spacer reserves room for the traffic lights (~38pt on macOS).
+            // Room for traffic lights.
             Color.clear.frame(height: 36)
 
             header
@@ -177,8 +183,8 @@ private struct Sidebar: View {
                 .padding(.horizontal, 10)
 
             sectionLabel("CATEGORIES")
-                .padding(.horizontal, 14)
-                .padding(.top, 18)
+                .padding(.horizontal, 16)
+                .padding(.top, 20)
                 .padding(.bottom, 4)
 
             ScrollView {
@@ -203,13 +209,22 @@ private struct Sidebar: View {
                 .padding(.top, 10)
                 .padding(.bottom, 12)
         }
-        .background(Color(.windowBackgroundColor))
     }
 
     private var header: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
+            // Tiny brand mark — small rounded square with accent fill.
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(Color.accentColor)
+                .frame(width: 18, height: 18)
+                .overlay(
+                    Image(systemName: "externaldrive.badge.checkmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.white)
+                )
+
             Text("FreeUp")
-                .font(.system(size: 14, weight: .semibold))
+                .font(FUFont.title)
                 .foregroundStyle(.primary)
 
             Spacer()
@@ -223,9 +238,12 @@ private struct Sidebar: View {
             } label: {
                 Image(systemName: isScanning ? "stop.fill" : "arrow.clockwise")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(isScanning ? Color(nsColor: .systemRed) : Color.accentColor)
+                    .foregroundStyle(isScanning ? Color(nsColor: .systemRed) : Color.secondary)
                     .frame(width: 22, height: 22)
-                    .contentShape(Rectangle())
+                    .background(
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(Color.primary.opacity(0.06))
+                    )
             }
             .buttonStyle(.plain)
             .help(isScanning ? "Stop scan (⌘.)" : "Scan now (⌘R)")
@@ -238,18 +256,15 @@ private struct Sidebar: View {
             selected = nil
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: "chart.pie")
-                    .font(.system(size: 12))
-                    .foregroundStyle(selected == nil ? Color.white : Color.secondary)
-                    .frame(width: 14)
+                IconSquare(systemName: "chart.pie.fill", color: Color.accentColor, size: 22)
                 Text("Overview")
                     .font(FUFont.body)
-                    .foregroundStyle(selected == nil ? Color.white : Color.primary)
+                    .foregroundStyle(.primary)
                 Spacer()
                 if isScanning {
                     Text("\(viewModel.totalFilesScanned)")
                         .font(FUFont.monoCaption)
-                        .foregroundStyle(selected == nil ? Color.white.opacity(0.85) : Color(.tertiaryLabelColor))
+                        .foregroundStyle(.secondary)
                         .contentTransition(.numericText())
                 }
             }
@@ -257,7 +272,7 @@ private struct Sidebar: View {
             .padding(.horizontal, 8)
             .background(
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(selected == nil ? Color.accentColor : Color.clear)
+                    .fill(selected == nil ? Color.primary.opacity(0.10) : Color.clear)
             )
             .contentShape(Rectangle())
         }
@@ -268,6 +283,7 @@ private struct Sidebar: View {
         HStack {
             Text(text)
                 .font(FUFont.eyebrow)
+                .kerning(1.2)
                 .foregroundStyle(.tertiary)
             Spacer()
         }
@@ -299,7 +315,6 @@ private struct Sidebar: View {
 
             if let info = viewModel.volumeInfo {
                 VStack(alignment: .leading, spacing: 6) {
-                    // Drive name line — name on left, mono free/total on right.
                     HStack(spacing: 6) {
                         Text(info.name)
                             .font(FUFont.caption)
@@ -313,7 +328,6 @@ private struct Sidebar: View {
                             .layoutPriority(1)
                     }
 
-                    // Compact 3-segment bar — no verbose legend.
                     StorageBar(volumeInfo: info, reclaimableSpace: viewModel.reclaimableSpace)
                 }
             }
@@ -335,11 +349,11 @@ private struct OverviewPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Top bar — reserves traffic-light-equivalent vertical height so
-            // the hero doesn't crowd the top of the window.
+            // Top strip — breadcrumb + meta.
             HStack {
                 Text("OVERVIEW")
                     .font(FUFont.eyebrow)
+                    .kerning(1.2)
                     .foregroundStyle(.tertiary)
                 Spacer()
                 if case .completed(let files, _, let dur) = viewModel.scanState {
@@ -378,8 +392,53 @@ private struct OverviewPane: View {
                 }
             }
             .scrollContentBackground(.hidden)
+
+            bottomBar
         }
-        .background(Color(.windowBackgroundColor))
+    }
+
+    private var bottomBar: some View {
+        CommandBar {
+            // Leading: context
+            if hasResults, reclaimable > 0 {
+                HStack(spacing: 8) {
+                    Text(ByteFormatter.format(reclaimable))
+                        .font(FUFont.mono)
+                        .foregroundStyle(.primary)
+                    Text("reclaimable")
+                        .font(FUFont.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            } else if isScanning {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.mini)
+                    Text("Scanning")
+                        .font(FUFont.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            } else {
+                Text("No scan yet")
+                    .font(FUFont.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        } trailing: {
+            HStack(spacing: 16) {
+                if hasResults, reclaimable > 0 {
+                    Button(action: onClean) {
+                        KBDAction(label: "Free Up", glyph: "⏎", color: Color.accentColor)
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.defaultAction)
+                }
+                Button {
+                    Task { await viewModel.startScan() }
+                } label: {
+                    KBDAction(label: "Rescan", glyph: "⌘R")
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut("r", modifiers: .command)
+            }
+        }
     }
 
     // MARK: Hero
@@ -394,6 +453,7 @@ private struct OverviewPane: View {
             VStack(spacing: 12) {
                 Text("SCANNING")
                     .font(FUFont.eyebrow)
+                    .kerning(1.2)
                     .foregroundStyle(.tertiary)
                 Text("\(viewModel.totalFilesScanned)")
                     .font(FUFont.hero)
@@ -411,6 +471,7 @@ private struct OverviewPane: View {
         VStack(spacing: 16) {
             Text(reclaimable > 0 ? "RECLAIMABLE" : "ALL CLEAN")
                 .font(FUFont.eyebrow)
+                .kerning(1.2)
                 .foregroundStyle(.tertiary)
 
             Text(ByteFormatter.format(reclaimable))
@@ -420,35 +481,25 @@ private struct OverviewPane: View {
                 .monospacedDigit()
 
             if reclaimable > 0 {
-                HStack(spacing: 12) {
-                    Button(action: onClean) {
-                        HStack(spacing: 8) {
-                            Text("Free Up")
-                                .font(.system(size: 14, weight: .semibold))
-                            Text(ByteFormatter.format(reclaimable))
-                                .font(.system(size: 14, weight: .semibold, design: .monospaced))
-                                .monospacedDigit()
-                        }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 9)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(Color.accentColor)
-                        )
+                Button(action: onClean) {
+                    HStack(spacing: 10) {
+                        Text("Free Up")
+                            .font(FUFont.bodySemibold)
+                        Text(ByteFormatter.format(reclaimable))
+                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                            .monospacedDigit()
+                        KBDPill("⏎")
                     }
-                    .buttonStyle(.plain)
-                    .disabled(isScanning)
-                    .keyboardShortcut(.defaultAction)
-
-                    Button("Rescan") {
-                        Task { await viewModel.startScan() }
-                    }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .keyboardShortcut("r", modifiers: .command)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 9)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.accentColor)
+                    )
                 }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.defaultAction)
                 .padding(.top, 4)
             } else {
                 Text("Nothing to reclaim right now.")
@@ -463,6 +514,7 @@ private struct OverviewPane: View {
         VStack(spacing: 14) {
             Text("READY")
                 .font(FUFont.eyebrow)
+                .kerning(1.2)
                 .foregroundStyle(.tertiary)
 
             Text("0 B")
@@ -472,15 +524,13 @@ private struct OverviewPane: View {
             Button {
                 Task { await viewModel.startScan() }
             } label: {
-                HStack(spacing: 8) {
+                HStack(spacing: 10) {
                     Text("Scan")
-                        .font(.system(size: 14, weight: .semibold))
-                    Text("⌘R")
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.7))
+                        .font(FUFont.bodySemibold)
+                    KBDPill("⌘R")
                 }
                 .foregroundStyle(.white)
-                .padding(.horizontal, 18)
+                .padding(.horizontal, 16)
                 .padding(.vertical, 9)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -509,11 +559,11 @@ private struct OverviewPane: View {
                     action: { onSelectCategory(category) }
                 )
                 if idx < sortedCategories.count - 1 {
-                    Hairline()
+                    Hairline().opacity(0.5)
                 }
             }
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 20)
         .padding(.vertical, 4)
     }
 
@@ -544,17 +594,17 @@ private struct OverviewCategoryRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 12) {
-                CategoryDot(color: category.themeColor)
+                IconSquare(systemName: category.iconName, color: category.themeColor, size: 26)
 
                 Text(category.rawValue)
-                    .font(FUFont.body)
+                    .font(FUFont.bodyMedium)
                     .foregroundStyle(.primary)
-                    .frame(width: 160, alignment: .leading)
+                    .frame(width: 164, alignment: .leading)
 
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 1.5)
-                            .fill(Color(.quaternaryLabelColor).opacity(0.5))
+                            .fill(Color.primary.opacity(0.08))
                         RoundedRectangle(cornerRadius: 1.5)
                             .fill(category.themeColor.opacity(0.85))
                             .frame(width: max(2, geo.size.width * ratio))
@@ -579,9 +629,12 @@ private struct OverviewCategoryRow: View {
                     .foregroundStyle(.tertiary)
                     .frame(width: 8)
             }
-            .padding(.horizontal, 6)
+            .padding(.horizontal, 8)
             .padding(.vertical, 10)
-            .background(isHovered ? Color(.quaternaryLabelColor).opacity(0.4) : .clear)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isHovered ? Color.primary.opacity(0.05) : .clear)
+            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -617,7 +670,7 @@ struct WarningBanner: View {
         .padding(.vertical, 8)
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(Color(.separatorColor), lineWidth: 1)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
         )
     }
 }

@@ -2,8 +2,9 @@
 //  FileRowView.swift
 //  FreeUp
 //
-//  Minimal row — no card, no colored icon, no hover lift. Just a checkbox,
-//  name, path (dim), date, and a monospace size.
+//  Dense file row with the Raycast cadence: compact icon square,
+//  title + tertiary subtitle on two lines, right-aligned accessories
+//  (date + mono size), and a hover-revealed ellipsis menu.
 //
 
 import SwiftUI
@@ -29,6 +30,7 @@ struct FileRowView: View, Equatable {
     var body: some View {
         HStack(spacing: 10) {
             checkbox
+            fileIconSquare
 
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
@@ -38,12 +40,8 @@ struct FileRowView: View, Equatable {
                         .lineLimit(1)
                         .truncationMode(.middle)
 
-                    if isClone {
-                        tag("clone")
-                    }
-                    if file.isPurgeable {
-                        tag("purgeable")
-                    }
+                    if isClone { tag("clone") }
+                    if file.isPurgeable { tag("purgeable") }
                 }
 
                 Text(file.parentPath)
@@ -89,6 +87,14 @@ struct FileRowView: View, Equatable {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
+    private var fileIconSquare: some View {
+        IconSquare(
+            systemName: Self.iconName(for: file.contentType),
+            color: Self.iconColor(for: file.contentType),
+            size: 20
+        )
+    }
+
     @ViewBuilder
     private func tag(_ text: String) -> some View {
         Text(text)
@@ -98,7 +104,7 @@ struct FileRowView: View, Equatable {
             .padding(.vertical, 1)
             .overlay(
                 RoundedRectangle(cornerRadius: 3)
-                    .stroke(Color(.separatorColor), lineWidth: 1)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
             )
     }
 
@@ -126,8 +132,33 @@ struct FileRowView: View, Equatable {
     }
 
     private var background: Color {
-        if isSelected { return Color.accentColor.opacity(0.08) }
-        if isHovered { return Color(.quaternaryLabelColor).opacity(0.4) }
+        if isSelected { return Color.accentColor.opacity(0.10) }
+        if isHovered { return Color.primary.opacity(0.05) }
         return .clear
+    }
+
+    // Per-UTType glyph + color mapping for the mini icon square.
+    private static func iconName(for type: UTType?) -> String {
+        guard let type else { return "doc" }
+        if type.conforms(to: .image) { return "photo" }
+        if type.conforms(to: .movie) || type.conforms(to: .video) { return "film" }
+        if type.conforms(to: .audio) { return "waveform" }
+        if type.conforms(to: .archive) { return "archivebox" }
+        if type.conforms(to: .pdf) { return "doc.text" }
+        if type.conforms(to: .folder) { return "folder.fill" }
+        if type.conforms(to: .application) { return "app" }
+        return "doc"
+    }
+
+    private static func iconColor(for type: UTType?) -> Color {
+        guard let type else { return FUColors.textSecondary }
+        if type.conforms(to: .image) { return FUColors.photosColor }
+        if type.conforms(to: .movie) || type.conforms(to: .video) { return FUColors.videosColor }
+        if type.conforms(to: .audio) { return FUColors.audioColor }
+        if type.conforms(to: .archive) { return FUColors.archivesColor }
+        if type.conforms(to: .pdf) { return FUColors.systemJunkColor }
+        if type.conforms(to: .folder) { return FUColors.downloadsColor }
+        if type.conforms(to: .application) { return FUColors.accent }
+        return FUColors.downloadsColor
     }
 }

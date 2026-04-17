@@ -12,6 +12,9 @@ import SwiftData
 struct FreeUpApp: App {
     
     init() {
+        // Register bundled Inter fonts so `.custom("Inter-…")` resolves.
+        FontLoader.registerBundledFonts()
+
         // Register app for Full Disk Access by attempting to access protected files
         // This will make the app appear in System Settings > Privacy & Security > Full Disk Access
         registerForFullDiskAccess()
