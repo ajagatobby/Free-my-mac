@@ -47,24 +47,20 @@ struct DashboardView: View {
                 isScanning: isScanning
             )
             .frame(width: 256)
-            .background(
-                // Slightly more opaque so the sidebar stays readable against
-                // any wallpaper. The main pane carries the lighter vibrancy.
-                Color.primary.opacity(0.02)
-                    .background(.regularMaterial)
-            )
+            // Solid slightly-tinted background so the sidebar reads as a
+            // distinct pane — no material/vibrancy that leaks wallpaper.
+            .background(Color(.controlBackgroundColor))
 
             Rectangle()
-                .fill(Color.primary.opacity(0.08))
+                .fill(Color(.separatorColor))
                 .frame(width: 1)
                 .ignoresSafeArea()
 
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(.ultraThinMaterial)
+                .background(Color(.windowBackgroundColor))
         }
-        .background(Color.clear)
-        .transparentWindow()
+        .background(Color(.windowBackgroundColor))
         .alert("Free Up Space", isPresented: $showCleanupConfirmation) {
             Button("Cancel", role: .cancel) { }
             Button(cleanupActionTitle, role: .destructive) {

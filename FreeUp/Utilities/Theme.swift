@@ -112,7 +112,7 @@ extension FileCategory {
 struct Hairline: View {
     var body: some View {
         Rectangle()
-            .fill(Color(.separatorColor).opacity(0.6))
+            .fill(Color(.separatorColor))
             .frame(height: 1)
     }
 }
@@ -194,7 +194,7 @@ struct CommandBar<Leading: View, Trailing: View>: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
         }
-        .background(.ultraThinMaterial)
+        .background(Color(.controlBackgroundColor))
     }
 }
 
