@@ -47,7 +47,7 @@ struct DashboardView: View {
                 sortedCategories: sortedCategories,
                 isScanning: isScanning
             )
-            .frame(width: 220)
+            .frame(width: 260)
             .background(Color(.controlBackgroundColor))
 
             Rectangle()

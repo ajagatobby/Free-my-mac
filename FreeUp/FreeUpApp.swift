@@ -81,7 +81,7 @@ struct FreeUpApp: App {
         WindowGroup {
             DashboardView(viewModel: scanViewModel)
                 .frame(
-                    minWidth: 760, idealWidth: 820,
+                    minWidth: 740, idealWidth: 780,
                     minHeight: 500, idealHeight: 560
                 )
         }
