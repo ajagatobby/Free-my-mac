@@ -47,20 +47,21 @@ struct DashboardView: View {
                 isScanning: isScanning
             )
             .frame(width: 256)
-            // Solid slightly-tinted background so the sidebar reads as a
-            // distinct pane — no material/vibrancy that leaks wallpaper.
             .background(Color(.controlBackgroundColor))
 
             Rectangle()
                 .fill(Color(.separatorColor))
                 .frame(width: 1)
-                .ignoresSafeArea()
 
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(.windowBackgroundColor))
         }
         .background(Color(.windowBackgroundColor))
+        // Hidden titlebar still reserves a ~28pt safe area above content;
+        // opt out so panes start flush. The sidebar carves out its own
+        // 36pt traffic-lights gap internally.
+        .ignoresSafeArea(.all, edges: .top)
         .alert("Free Up Space", isPresented: $showCleanupConfirmation) {
             Button("Cancel", role: .cancel) { }
             Button(cleanupActionTitle, role: .destructive) {
