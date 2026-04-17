@@ -473,10 +473,10 @@ private struct OverviewPane: View {
                 .font(FUFont.hero)
                 .foregroundStyle(.primary)
                 .monospacedDigit()
-                // Fixed width — the number shifts during scanning (MB → GB,
-                // 9 → 99 → 999). Centering inside a fixed frame keeps the
-                // layout still while digits update under it.
+                .contentTransition(.numericText())
+                // Fixed width — layout stays still while digits roll.
                 .frame(width: 420, alignment: .center)
+                .animation(.snappy(duration: 0.25), value: reclaimable)
 
             if reclaimable > 0 {
                 Button(action: onClean) {
@@ -488,6 +488,8 @@ private struct OverviewPane: View {
                         Text(ByteFormatter.format(reclaimable))
                             .font(.system(size: 13, weight: .semibold, design: .monospaced))
                             .monospacedDigit()
+                            .contentTransition(.numericText())
+                            .animation(.snappy(duration: 0.25), value: reclaimable)
                             .frame(width: 80, alignment: .trailing)
                         KBDPill("⏎")
                     }
