@@ -213,3 +213,22 @@ struct KBDAction: View {
         }
     }
 }
+
+/// Shimmering placeholder block. Size it via `.frame(...)`; the
+/// animation is a gentle opacity pulse — subtle enough not to feel
+/// busy, clear enough to read as "loading".
+struct SkeletonBlock: View {
+    var cornerRadius: CGFloat = 4
+
+    @State private var pulsing = false
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(Color.primary.opacity(pulsing ? 0.12 : 0.05))
+            .animation(
+                .easeInOut(duration: 1.1).repeatForever(autoreverses: true),
+                value: pulsing
+            )
+            .onAppear { pulsing = true }
+    }
+}

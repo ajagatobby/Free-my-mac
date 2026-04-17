@@ -50,13 +50,7 @@ struct CategoryDetailView: View {
 
             Group {
                 if isLoading {
-                    VStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text("Loading")
-                            .font(FUFont.caption)
-                            .foregroundStyle(.tertiary)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    CategorySkeletonList()
                 } else if displayFlatFiles.isEmpty && displayGroups.isEmpty {
                     ContentUnavailableView(
                         searchText.isEmpty ? "No files" : "No results",
@@ -557,3 +551,52 @@ struct SourceSectionHeader: View {
 }
 
 // (SelectionActionBar removed — CommandBar in CategoryDetailView replaces it.)
+
+// MARK: - Skeleton loader
+
+/// A stack of shimmering placeholder rows matching the SourceSectionHeader
+/// layout so switching to a category feels instant even while the off-main
+/// sort/group pipeline runs.
+struct CategorySkeletonList: View {
+    // Vary widths so rows don't look like a repeated template.
+    private let rowWidths: [CGFloat] = [160, 120, 180, 140, 100, 150]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(rowWidths.enumerated()), id: \.offset) { _, width in
+                skeletonRow(nameWidth: width)
+                Hairline().opacity(0.5)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 0)
+    }
+
+    private func skeletonRow(nameWidth: CGFloat) -> some View {
+        HStack(spacing: 10) {
+            // Chevron placeholder
+            SkeletonBlock(cornerRadius: 2)
+                .frame(width: 8, height: 8)
+
+            // Name placeholder
+            SkeletonBlock()
+                .frame(width: nameWidth, height: 13)
+
+            Spacer(minLength: 8)
+
+            // Count placeholder
+            SkeletonBlock()
+                .frame(width: 42, height: 11)
+
+            // Size placeholder
+            SkeletonBlock()
+                .frame(width: 64, height: 12)
+
+            // Trailing icon placeholder
+            SkeletonBlock(cornerRadius: 6)
+                .frame(width: 14, height: 14)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+    }
+}
