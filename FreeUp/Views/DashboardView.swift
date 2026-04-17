@@ -10,6 +10,7 @@
 //
 
 import SwiftUI
+import Combine
 
 struct DashboardView: View {
     @Bindable var viewModel: ScanViewModel
@@ -346,8 +347,18 @@ private struct OverviewPane: View {
     let onClean: () -> Void
     let onSelectCategory: (FileCategory) -> Void
 
+    // Displayed reclaimable — debounced to at most one update per 500ms
+    // during scanning so the 250ms digit-roll animation always finishes
+    // before the next one starts. On scan completion it snaps to the
+    // final value.
+    @State private var displayedReclaimable: Int64 = 0
+
     private var hasResults: Bool { !sortedCategories.isEmpty }
     private var reclaimable: Int64 { viewModel.reclaimableSpace }
+
+    private var throttleTimer: Publishers.Autoconnect<Timer.TimerPublisher> {
+        Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -366,6 +377,20 @@ private struct OverviewPane: View {
                 }
             }
             .scrollContentBackground(.hidden)
+            .onAppear { displayedReclaimable = reclaimable }
+            .onChange(of: isScanning) { _, scanning in
+                // Snap to the real value the moment scanning ends so the
+                // final digit-roll animation lands on the true total.
+                if !scanning { displayedReclaimable = reclaimable }
+            }
+            .onReceive(throttleTimer) { _ in
+                // Adopt the latest target each tick. SwiftUI's diffing
+                // means no-op when they're equal. Animation is triggered
+                // by .animation(..., value: displayedReclaimable) below.
+                if displayedReclaimable != reclaimable {
+                    displayedReclaimable = reclaimable
+                }
+            }
 
             bottomBar
         }
@@ -442,35 +467,32 @@ private struct OverviewPane: View {
 
     private var hasResultsHero: some View {
         VStack(spacing: 16) {
-            Text(reclaimable > 0 ? "RECLAIMABLE" : "ALL CLEAN")
+            Text(displayedReclaimable > 0 ? "RECLAIMABLE" : "ALL CLEAN")
                 .font(FUFont.eyebrow)
                 .kerning(1.2)
                 .foregroundStyle(.tertiary)
 
-            Text(ByteFormatter.format(reclaimable))
+            Text(ByteFormatter.format(displayedReclaimable))
                 .font(FUFont.hero)
                 .foregroundStyle(.primary)
                 .monospacedDigit()
-                // Animate digit rolls ONLY after the scan finishes. During
-                // scanning the value updates many times per second and
-                // animations stack into a blurry ghost.
-                .contentTransition(isScanning ? .identity : .numericText())
-                .animation(isScanning ? nil : .snappy(duration: 0.25), value: reclaimable)
-                // Fixed width — layout stays still while digits roll.
+                // Digit roll — driven by displayedReclaimable which is
+                // throttled to ≥500ms intervals so animations don't
+                // overlap into a blurry ghost.
+                .contentTransition(.numericText())
+                .animation(.snappy(duration: 0.25), value: displayedReclaimable)
                 .frame(width: 420, alignment: .center)
 
-            if reclaimable > 0 {
+            if displayedReclaimable > 0 {
                 Button(action: onClean) {
                     HStack(spacing: 10) {
                         Text("Free Up")
                             .font(FUFont.bodySemibold)
-                        // Fixed width on the inline size so the button edges
-                        // don't shimmy as digits tick up during a scan.
-                        Text(ByteFormatter.format(reclaimable))
+                        Text(ByteFormatter.format(displayedReclaimable))
                             .font(.system(size: 13, weight: .semibold, design: .monospaced))
                             .monospacedDigit()
-                            .contentTransition(isScanning ? .identity : .numericText())
-                            .animation(isScanning ? nil : .snappy(duration: 0.25), value: reclaimable)
+                            .contentTransition(.numericText())
+                            .animation(.snappy(duration: 0.25), value: displayedReclaimable)
                             .frame(width: 80, alignment: .trailing)
                         KBDPill("⏎")
                     }
