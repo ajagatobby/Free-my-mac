@@ -473,15 +473,22 @@ private struct OverviewPane: View {
                 .font(FUFont.hero)
                 .foregroundStyle(.primary)
                 .monospacedDigit()
+                // Fixed width — the number shifts during scanning (MB → GB,
+                // 9 → 99 → 999). Centering inside a fixed frame keeps the
+                // layout still while digits update under it.
+                .frame(width: 420, alignment: .center)
 
             if reclaimable > 0 {
                 Button(action: onClean) {
                     HStack(spacing: 10) {
                         Text("Free Up")
                             .font(FUFont.bodySemibold)
+                        // Fixed width on the inline size so the button edges
+                        // don't shimmy as digits tick up during a scan.
                         Text(ByteFormatter.format(reclaimable))
                             .font(.system(size: 13, weight: .semibold, design: .monospaced))
                             .monospacedDigit()
+                            .frame(width: 80, alignment: .trailing)
                         KBDPill("⏎")
                     }
                     .foregroundStyle(.white)
