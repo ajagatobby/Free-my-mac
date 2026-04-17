@@ -61,13 +61,16 @@ struct DashboardView: View {
         .background(Color(.windowBackgroundColor))
         .ignoresSafeArea(.all, edges: .top)
         .disableFullScreen()
-        .alert("Free Up Space", isPresented: $showCleanupConfirmation) {
-            Button("Cancel", role: .cancel) { }
-            Button(cleanupActionTitle, role: .destructive) {
-                Task { await viewModel.cleanUpReclaimableFiles() }
-            }
-        } message: {
-            Text(cleanupMessage)
+        .sheet(isPresented: $showCleanupConfirmation) {
+            CleanupConfirmationSheet(
+                reclaimable: viewModel.reclaimableSpace,
+                mode: viewModel.currentDeleteMode,
+                onCancel: { showCleanupConfirmation = false },
+                onConfirm: {
+                    showCleanupConfirmation = false
+                    Task { await viewModel.cleanUpReclaimableFiles() }
+                }
+            )
         }
         .alert(
             viewModel.lastDeletionResult?.allSuccessful == true ? "Done" : "Cleanup result",
@@ -677,5 +680,82 @@ struct WarningBanner: View {
             RoundedRectangle(cornerRadius: 6)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)
         )
+    }
+}
+
+// MARK: - Cleanup confirmation sheet
+
+struct CleanupConfirmationSheet: View {
+    let reclaimable: Int64
+    let mode: DeletionService.DeleteMode
+    let onCancel: () -> Void
+    let onConfirm: () -> Void
+
+    private var actionLabel: String {
+        mode == .moveToTrash ? "Move to Trash" : "Delete"
+    }
+
+    private var verb: String {
+        mode == .moveToTrash ? "moved to Trash" : "permanently deleted"
+    }
+
+    var body: some View {
+        VStack(spacing: 18) {
+            IconSquare(systemName: "trash.fill", color: Color(nsColor: .systemRed), size: 44, cornerRadius: 10)
+                .padding(.top, 8)
+
+            VStack(spacing: 6) {
+                Text("Free up \(ByteFormatter.format(reclaimable))?")
+                    .font(FUFont.titleLarge)
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.center)
+
+                Text("Cache, logs, and system junk will be \(verb). Files that require administrator access will prompt for your password.")
+                    .font(FUFont.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 4)
+
+            HStack(spacing: 10) {
+                Button(action: onCancel) {
+                    HStack(spacing: 8) {
+                        Text("Cancel")
+                            .font(FUFont.bodyMedium)
+                            .foregroundStyle(.primary)
+                        KBDPill("⎋")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 9)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.primary.opacity(0.06))
+                    )
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.cancelAction)
+
+                Button(action: onConfirm) {
+                    HStack(spacing: 8) {
+                        Text(actionLabel)
+                            .font(FUFont.bodySemibold)
+                            .foregroundStyle(.white)
+                        KBDPill("⏎")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 9)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color(nsColor: .systemRed))
+                    )
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(24)
+        .frame(width: 360)
+        .background(Color(.windowBackgroundColor))
     }
 }
