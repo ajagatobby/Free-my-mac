@@ -90,8 +90,6 @@ struct CategoryDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Color.clear.frame(height: 20) // traffic lights room
-
             HStack(spacing: 10) {
                 IconSquare(systemName: category.iconName, color: category.themeColor, size: 26)
                 VStack(alignment: .leading, spacing: 2) {

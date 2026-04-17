@@ -366,9 +366,9 @@ private struct OverviewPane: View {
                     InlineScanProgress(state: viewModel.scanState, filesScanned: viewModel.totalFilesScanned)
                 }
             }
-            .padding(.horizontal, 28)
-            .padding(.top, 40)
-            .padding(.bottom, 14)
+            .padding(.horizontal, 24)
+            .padding(.top, 14)
+            .padding(.bottom, 12)
 
             Hairline()
 
