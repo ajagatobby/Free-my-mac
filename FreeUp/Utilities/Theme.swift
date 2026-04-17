@@ -37,19 +37,24 @@ enum FUColors {
         startPoint: .leading, endPoint: .trailing
     )
 
-    // Category colors — muted to not compete with content
-    static let cacheColor = Color.orange
-    static let logsColor = Color.gray
-    static let systemJunkColor = Color.red
-    static let developerColor = Color.green
-    static let downloadsColor = Color.blue
-    static let duplicatesColor = Color.teal
-    static let photosColor = Color.pink
-    static let videosColor = Color.purple
-    static let audioColor = Color.orange
-    static let documentsColor = Color.blue
-    static let archivesColor = Color.brown
-    static let orphanedColor = Color.indigo
+    // Category colors — NSColor-backed so they adapt to appearance
+    // (system tints adjust luminance in light vs dark mode so they stay
+    // readable on whatever background they land on).
+    static let cacheColor = Color(nsColor: .systemOrange)
+    static let logsColor = Color(nsColor: .systemGray)
+    static let systemJunkColor = Color(nsColor: .systemRed)
+    static let developerColor = Color(nsColor: .systemGreen)
+    static let downloadsColor = Color(nsColor: .systemBlue)
+    static let duplicatesColor = Color(nsColor: .systemTeal)
+    static let photosColor = Color(nsColor: .systemPink)
+    static let videosColor = Color(nsColor: .systemPurple)
+    // Audio gets yellow (not orange again) so it doesn't collide with cache
+    static let audioColor = Color(nsColor: .systemYellow)
+    // Documents gets indigo so it doesn't collide with downloads (blue)
+    static let documentsColor = Color(nsColor: .systemIndigo)
+    static let archivesColor = Color(nsColor: .systemBrown)
+    // Orphaned app data gets mint so it doesn't collide with documents
+    static let orphanedColor = Color(nsColor: .systemMint)
 
     // Borders — system separator
     static let border = Color(.separatorColor)

@@ -114,7 +114,10 @@ final class ScanViewModel {
     // MARK: - Settings
     
     var currentDeleteMode: DeletionService.DeleteMode {
-        let mode = UserDefaults.standard.string(forKey: "deleteMode") ?? "trash"
+        // Default is permanent delete: moving cache/log junk to Trash keeps it
+        // on disk, which defeats the whole point of the app. Users can still
+        // opt into the safer "Move to Trash" mode in Settings.
+        let mode = UserDefaults.standard.string(forKey: "deleteMode") ?? "permanent"
         return mode == "permanent" ? .permanent : .moveToTrash
     }
     

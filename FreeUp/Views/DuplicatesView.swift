@@ -358,36 +358,45 @@ struct DuplicateGroupRow: View {
                         .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(.tertiary)
                         .frame(width: 12)
-                    
+
                     // File icon
                     ZStack {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .fill(Color.teal.opacity(0.12))
                             .frame(width: 36, height: 36)
-                        
+
                         Image(systemName: "doc.on.doc.fill")
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(Color.teal)
                     }
-                    
+
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(group.files.first?.fileName ?? "Unknown")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                        
-                        Text("\(group.files.count) copies")
+                        HStack(spacing: 6) {
+                            Text(group.files.first?.fileName ?? "Unknown")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+
+                            Text("Keep")
+                                .font(.system(size: 9, weight: .bold))
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(Capsule().fill(Color.green.opacity(0.15)))
+                                .foregroundStyle(Color.green)
+                        }
+
+                        Text("\(group.files.count) copies · removes \(group.files.count - 1)")
                             .font(.system(size: 11, weight: .regular))
                             .foregroundStyle(.secondary)
                     }
-                    
+
                     Spacer()
-                    
+
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(ByteFormatter.format(group.wastedSpace))
                             .font(.system(size: 14, weight: .bold, design: .rounded))
                             .foregroundStyle(Color.teal)
-                        
+
                         Text("wasted")
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.tertiary)
@@ -395,6 +404,10 @@ struct DuplicateGroupRow: View {
                 }
             }
             .buttonStyle(.plain)
+            .help(isExpanded ? "Collapse group" : "Expand group")
+            .accessibilityLabel(isExpanded
+                ? "Collapse \(group.files.first?.fileName ?? "group")"
+                : "Expand \(group.files.first?.fileName ?? "group")")
             
             // Expanded file list
             if isExpanded {

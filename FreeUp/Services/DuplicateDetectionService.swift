@@ -83,32 +83,63 @@ private nonisolated func fastHexString(from digest: SHA256.Digest) -> String {
 
 // MARK: - Standalone Hashing Functions (nonisolated for parallel execution)
 
-/// Compute SHA256 of first N bytes (fast pre-filter) - runs off actor
-private nonisolated func computePartialHashStatic(for url: URL, size: Int) -> String? {
+/// Hash first N bytes AND last N bytes (plus file size as salt) to aggressively
+/// discriminate files that share an identical header — common for container
+/// formats, compiled binaries, and archives. Still only O(sampleSize) I/O.
+/// For files smaller than 2×sampleSize, we just hash the whole thing.
+private nonisolated func computePartialHashStatic(
+    for url: URL,
+    fileSize: Int64,
+    sampleSize: Int
+) -> String? {
     guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
     defer { try? handle.close() }
-    
-    let data = handle.readData(ofLength: size)
-    guard !data.isEmpty else { return nil }
-    
-    let hash = SHA256.hash(data: data)
-    return fastHexString(from: hash)
+
+    var hasher = SHA256()
+
+    // Salt with file size so files of different sizes never collide.
+    withUnsafeBytes(of: fileSize.littleEndian) { hasher.update(bufferPointer: $0) }
+
+    if fileSize <= Int64(sampleSize) * 2 {
+        // Small enough — hash the whole file in one read.
+        let data = handle.readData(ofLength: Int(fileSize))
+        guard !data.isEmpty else { return nil }
+        hasher.update(data: data)
+    } else {
+        // Head
+        let head = handle.readData(ofLength: sampleSize)
+        guard !head.isEmpty else { return nil }
+        hasher.update(data: head)
+
+        // Tail
+        let tailOffset = UInt64(fileSize) - UInt64(sampleSize)
+        do {
+            try handle.seek(toOffset: tailOffset)
+        } catch {
+            return nil
+        }
+        let tail = handle.readData(ofLength: sampleSize)
+        guard !tail.isEmpty else { return nil }
+        hasher.update(data: tail)
+    }
+
+    return fastHexString(from: hasher.finalize())
 }
 
 /// Compute full SHA256 hash of entire file (streaming) - runs off actor
 private nonisolated func computeFullHashStatic(for url: URL) -> String? {
     guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
     defer { try? handle.close() }
-    
+
     var hasher = SHA256()
     let bufferSize = 1024 * 1024 // 1MB chunks
-    
+
     while true {
         let data = handle.readData(ofLength: bufferSize)
         if data.isEmpty { break }
         hasher.update(data: data)
     }
-    
+
     let hash = hasher.finalize()
     return fastHexString(from: hash)
 }
@@ -209,19 +240,20 @@ actor DuplicateDetectionService {
             phase: .hashing, current: 0, total: totalToHash, currentFile: nil
         ))
         
-        // Phase 2: Parallel partial hash (first 4KB) to quickly eliminate non-duplicates
+        // Phase 2: Parallel partial hash (head+tail) to quickly eliminate non-duplicates
         let hashSize = partialHashSize
         var partialHashGroups: [String: [ScannedFileInfo]] = [:]
         var hashesCompleted = 0
-        
-        // Process in parallel with concurrency limit to avoid file handle exhaustion
-        let maxConcurrency = 8
+
+        // Partial hash is tiny I/O (≤8KB per file) — push concurrency hard.
+        // File-handle ceiling (typically 10240 on macOS) is well above this.
+        let partialConcurrency = 32
         await withTaskGroup(of: (String, ScannedFileInfo)?.self) { group in
             var submitted = 0
-            
+
             for (fileSize, file) in allCandidates {
                 // Limit in-flight tasks to avoid opening thousands of FileHandles
-                if submitted >= maxConcurrency {
+                if submitted >= partialConcurrency {
                     if let result = await group.next() {
                         if isCancelled { break }
                         if let (key, file) = result {
@@ -233,12 +265,16 @@ actor DuplicateDetectionService {
                         hashesCompleted += 1
                     }
                 }
-                
+
                 group.addTask {
-                    guard let hash = computePartialHashStatic(for: file.url, size: hashSize) else {
+                    guard let hash = computePartialHashStatic(
+                        for: file.url, fileSize: fileSize, sampleSize: hashSize
+                    ) else {
                         return nil
                     }
-                    return ("\(fileSize)_\(hash)", file)
+                    // fileSize is already baked into the hash, so the hash alone
+                    // is a safe group key.
+                    return (hash, file)
                 }
                 submitted += 1
             }
@@ -278,12 +314,15 @@ actor DuplicateDetectionService {
         var fullHashGroups: [String: [ScannedFileInfo]] = [:]
         var fullHashCompleted = 0
         
+        // Full hashing reads entire files; match the SSD queue depth rather than
+        // the old blanket cap of 8. Processor count is a good proxy on Apple silicon.
+        let fullConcurrency = max(8, min(16, ProcessInfo.processInfo.activeProcessorCount))
         await withTaskGroup(of: (String, ScannedFileInfo)?.self) { group in
             var submitted = 0
-            
+
             for file in fullCandidates {
                 // Limit concurrency for full hashing (these read entire files)
-                if submitted >= maxConcurrency {
+                if submitted >= fullConcurrency {
                     if let result = await group.next() {
                         if isCancelled { break }
                         if let (hash, file) = result {

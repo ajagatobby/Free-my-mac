@@ -77,7 +77,7 @@ struct FreeUpApp: App {
     var body: some Scene {
         WindowGroup {
             DashboardView(viewModel: scanViewModel)
-                .frame(minWidth: 800, minHeight: 600)
+                .frame(minWidth: 1000, minHeight: 650)
         }
         .modelContainer(sharedModelContainer)
         .windowStyle(.automatic)
@@ -157,7 +157,7 @@ struct FreeUpApp: App {
 // MARK: - Settings View
 
 struct SettingsView: View {
-    @AppStorage("deleteMode") private var deleteMode = "trash"
+    @AppStorage("deleteMode") private var deleteMode = "permanent"
     @AppStorage("showHiddenFiles") private var showHiddenFiles = false
     @AppStorage("autoScanOnLaunch") private var autoScanOnLaunch = false
     @AppStorage("batchSize") private var batchSize = 100

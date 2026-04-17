@@ -58,7 +58,16 @@ struct DashboardView: View {
         .alert(
             viewModel.lastDeletionResult?.allSuccessful == true ? "Cleanup Complete" : "Cleanup Result",
             isPresented: Binding(
-                get: { viewModel.showDeletionResult },
+                get: {
+                    // Suppress the generic alert when the failure is a
+                    // permission problem — we show the dedicated FDA sheet
+                    // instead (see .onChange below).
+                    guard viewModel.showDeletionResult else { return false }
+                    if viewModel.lastDeletionResult?.isPermissionBlocked == true {
+                        return false
+                    }
+                    return true
+                },
                 set: { if !$0 { viewModel.dismissDeletionResult() } }
             )
         ) {
@@ -68,11 +77,21 @@ struct DashboardView: View {
                 if r.successCount > 0 && r.failureCount == 0 {
                     Text("Freed \(ByteFormatter.format(r.freedSpace)). \(r.successCount) files removed.")
                 } else if r.successCount == 0 {
-                    Text("All \(r.failureCount) files failed. Grant Full Disk Access in System Settings.")
+                    Text("All \(r.failureCount) files failed. \(r.errors.first?.error ?? "")")
                 } else {
                     Text("Freed \(ByteFormatter.format(r.freedSpace)). \(r.successCount) removed, \(r.failureCount) failed.")
                 }
             }
+        }
+        // Route permission-denied failures to the FDA walkthrough sheet so
+        // the user isn't stuck re-reading the same generic alert.
+        .onChange(of: viewModel.showDeletionResult) { _, isShowing in
+            guard isShowing,
+                  viewModel.lastDeletionResult?.isPermissionBlocked == true
+            else { return }
+            viewModel.checkPermissions()
+            showingPermissionsSheet = true
+            viewModel.dismissDeletionResult()
         }
         .sheet(isPresented: $showingPermissionsSheet) {
             PermissionsView(

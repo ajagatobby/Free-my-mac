@@ -14,9 +14,29 @@ struct DeletionResult: Sendable {
     let failureCount: Int
     let freedSpace: Int64
     let errors: [DeletionError]
-    
+
     var totalAttempted: Int { successCount + failureCount }
     var allSuccessful: Bool { failureCount == 0 }
+
+    /// True if the dominant failure cause is a TCC/FDA permission problem —
+    /// the UI uses this to surface the Full Disk Access flow instead of a
+    /// generic alert.
+    var isPermissionBlocked: Bool {
+        guard failureCount > 0 else { return false }
+        let permissionFailures = errors.filter { $0.reason == .permissionDenied }.count
+        // If at least half the failures are permission-denied, treat the whole
+        // run as blocked. One-offs (a single locked file) stay as generic errors.
+        return permissionFailures * 2 >= failureCount
+    }
+}
+
+/// Why a specific file failed to delete. Used by the UI to decide whether to
+/// offer Full Disk Access guidance vs a generic error.
+enum DeletionFailureReason: Sendable, Equatable {
+    case permissionDenied
+    case fileNotFound
+    case busyOrLocked
+    case other
 }
 
 /// Error during deletion
@@ -24,6 +44,46 @@ struct DeletionError: Sendable, Identifiable {
     let id = UUID()
     let url: URL
     let error: String
+    let reason: DeletionFailureReason
+
+    init(url: URL, error: String, reason: DeletionFailureReason = .other) {
+        self.url = url
+        self.error = error
+        self.reason = reason
+    }
+
+    /// Classify an `NSError` (usually from FileManager) into a reason.
+    static func classify(_ error: Error) -> DeletionFailureReason {
+        let ns = error as NSError
+        // Cocoa-level classification first.
+        switch ns.code {
+        case NSFileReadNoPermissionError,
+             NSFileWriteNoPermissionError:
+            return .permissionDenied
+        case NSFileNoSuchFileError,
+             NSFileReadNoSuchFileError:
+            return .fileNotFound
+        case NSFileWriteFileExistsError,
+             NSFileLockingError:
+            return .busyOrLocked
+        default:
+            break
+        }
+        // POSIX fallback — `removeItem` often surfaces errno via NSPOSIXErrorDomain.
+        if ns.domain == NSPOSIXErrorDomain {
+            switch Int32(ns.code) {
+            case EPERM, EACCES:
+                return .permissionDenied
+            case ENOENT:
+                return .fileNotFound
+            case EBUSY, ETXTBSY:
+                return .busyOrLocked
+            default:
+                return .other
+            }
+        }
+        return .other
+    }
 }
 
 /// Progress update during batch deletion
@@ -58,8 +118,15 @@ actor DeletionService {
     }
     
     /// Fast batch deletion
-    /// - Move to Trash: uses NSWorkspace.recycle (goes through Finder, has proper permissions)
-    /// - Permanent: uses parallel FileManager.removeItem (fast but needs FDA for protected dirs)
+    /// - Move to Trash: uses parallel `FileManager.trashItem` (no Apple Events
+    ///   to Finder, returns real per-file error codes).
+    /// - Permanent: uses parallel FileManager.removeItem (fast but needs FDA
+    ///   for protected dirs).
+    ///
+    /// Early-abort: if the first handful of attempts all fail with permission
+    /// errors, we stop the whole batch. Running 600 more of the same doomed
+    /// call just wastes time and clutters the error list. The UI can then
+    /// surface the Full Disk Access flow instead of a generic alert.
     func deleteFilesFast(
         _ files: [ScannedFileInfo],
         mode: DeleteMode = .moveToTrash
@@ -67,110 +134,149 @@ actor DeletionService {
         guard !files.isEmpty else {
             return DeletionResult(successCount: 0, failureCount: 0, freedSpace: 0, errors: [])
         }
-        
+
         isCancelled = false
-        
+
         switch mode {
         case .moveToTrash:
-            // ALWAYS use NSWorkspace.recycle for Trash — it goes through Finder
-            // which has broader permissions than direct FileManager calls.
-            // Process concurrent chunks for speed.
-            return await trashFilesConcurrent(files)
+            return await trashFilesParallel(files)
         case .permanent:
             return await deleteFilesBatchParallel(files)
         }
     }
-    
-    // MARK: - Batch Trash via NSWorkspace.recycle (concurrent chunks)
-    
-    /// Trash files using NSWorkspace.recycle with concurrent chunk processing
-    private func trashFilesConcurrent(_ files: [ScannedFileInfo]) async -> DeletionResult {
-        // Process in concurrent chunks — Finder handles the actual Trash move
-        // Chunk size of 200 balances Finder IPC overhead vs responsiveness
-        let chunkSize = 200
-        let chunks = stride(from: 0, to: files.count, by: chunkSize).map { start in
-            let end = min(start + chunkSize, files.count)
-            return Array(files[start..<end])
-        }
-        
-        // Run up to 4 chunks concurrently
-        var totalSuccess = 0
-        var totalFailure = 0
-        var totalFreed: Int64 = 0
-        var allErrors: [DeletionError] = []
-        
-        await withTaskGroup(of: DeletionResult.self) { group in
-            var launched = 0
-            let maxConcurrentChunks = 4
-            
-            for chunk in chunks {
-                if isCancelled { break }
-                
-                if launched >= maxConcurrentChunks {
+
+    // MARK: - Batch Trash via FileManager.trashItem (parallel)
+
+    /// Trash files using `FileManager.trashItem` directly — no Apple Events,
+    /// no Finder IPC, no silent "couldn't move" errors. Each task returns a
+    /// classified result so we can tell permission errors from other failures.
+    private func trashFilesParallel(_ files: [ScannedFileInfo]) async -> DeletionResult {
+        // Keep concurrency well under the default file-handle limit.
+        let maxConcurrency = 16
+        // Early-abort threshold: if the first `probeSize` attempts all fail
+        // with permission-denied, there's no point running the rest.
+        let probeSize = min(8, files.count)
+
+        var successCount = 0
+        var failureCount = 0
+        var freedSpace: Int64 = 0
+        var errors: [DeletionError] = []
+        errors.reserveCapacity(16)
+
+        var completedSoFar = 0
+        var permissionFailuresSoFar = 0
+        var earlyAborted = false
+
+        await withTaskGroup(of: (success: Bool, size: Int64, error: DeletionError?).self) { group in
+            var submitted = 0
+
+            for file in files {
+                if isCancelled || earlyAborted { break }
+
+                if submitted >= maxConcurrency {
                     if let result = await group.next() {
-                        totalSuccess += result.successCount
-                        totalFailure += result.failureCount
-                        totalFreed += result.freedSpace
-                        allErrors.append(contentsOf: result.errors)
+                        tallyResult(
+                            result,
+                            successCount: &successCount,
+                            failureCount: &failureCount,
+                            freedSpace: &freedSpace,
+                            errors: &errors,
+                            permissionFailuresSoFar: &permissionFailuresSoFar
+                        )
+                        completedSoFar += 1
+
+                        // If the probe window is fully permission-denied,
+                        // abort the rest of the submissions.
+                        if completedSoFar >= probeSize,
+                           permissionFailuresSoFar == completedSoFar {
+                            earlyAborted = true
+                            break
+                        }
                     }
                 }
-                
-                let chunkURLs = chunk.map(\.url)
-                let chunkFiles = chunk
+
+                let fileURL = file.url
+                let fileSize = file.allocatedSize
                 group.addTask {
-                    await self.recycleChunk(chunkURLs, files: chunkFiles)
+                    var resultingURL: NSURL?
+                    do {
+                        try FileManager.default.trashItem(at: fileURL, resultingItemURL: &resultingURL)
+                        return (true, fileSize, nil)
+                    } catch {
+                        return (
+                            false,
+                            0,
+                            DeletionError(
+                                url: fileURL,
+                                error: error.localizedDescription,
+                                reason: DeletionError.classify(error)
+                            )
+                        )
+                    }
                 }
-                launched += 1
+                submitted += 1
             }
-            
-            // Drain remaining
+
+            // Drain remaining tasks (even on early-abort we want to count
+            // what already ran so the UI reports accurate totals).
             for await result in group {
-                totalSuccess += result.successCount
-                totalFailure += result.failureCount
-                totalFreed += result.freedSpace
-                allErrors.append(contentsOf: result.errors)
+                tallyResult(
+                    result,
+                    successCount: &successCount,
+                    failureCount: &failureCount,
+                    freedSpace: &freedSpace,
+                    errors: &errors,
+                    permissionFailuresSoFar: &permissionFailuresSoFar
+                )
             }
         }
-        
+
+        // If we aborted early, account for the files we never even attempted.
+        // The UI shouldn't claim they "failed" — they were skipped because the
+        // probe told us the whole batch was blocked.
+        if earlyAborted {
+            let attempted = successCount + failureCount
+            let skipped = files.count - attempted
+            if skipped > 0 {
+                // Surface a single representative error so isPermissionBlocked
+                // stays true and the UI routes to the FDA sheet.
+                errors.append(DeletionError(
+                    url: files.last?.url ?? URL(fileURLWithPath: "/"),
+                    error: "Skipped \(skipped) more files — Full Disk Access required.",
+                    reason: .permissionDenied
+                ))
+                failureCount += skipped
+            }
+        }
+
         return DeletionResult(
-            successCount: totalSuccess,
-            failureCount: totalFailure,
-            freedSpace: totalFreed,
-            errors: allErrors
+            successCount: successCount,
+            failureCount: failureCount,
+            freedSpace: freedSpace,
+            errors: errors
         )
     }
-    
-    /// Recycle a chunk of URLs via NSWorkspace
-    private nonisolated func recycleChunk(
-        _ urls: [URL],
-        files: [ScannedFileInfo]
-    ) async -> DeletionResult {
-        await withCheckedContinuation { continuation in
-            NSWorkspace.shared.recycle(urls) { trashedURLs, error in
-                let trashedSet = Set(trashedURLs.keys.map(\.path))
-                var successCount = 0
-                var freedSpace: Int64 = 0
-                var errors: [DeletionError] = []
-                
-                for file in files {
-                    if trashedSet.contains(file.url.path) {
-                        successCount += 1
-                        freedSpace += file.allocatedSize
-                    } else {
-                        errors.append(DeletionError(
-                            url: file.url,
-                            error: error?.localizedDescription ?? "Permission denied — grant Full Disk Access in System Settings"
-                        ))
-                    }
+
+    /// Fold a task result into running totals. Shared by the throttled
+    /// submit loop and the final drain.
+    private func tallyResult(
+        _ result: (success: Bool, size: Int64, error: DeletionError?),
+        successCount: inout Int,
+        failureCount: inout Int,
+        freedSpace: inout Int64,
+        errors: inout [DeletionError],
+        permissionFailuresSoFar: inout Int
+    ) {
+        if result.success {
+            successCount += 1
+            freedSpace += result.size
+        } else {
+            failureCount += 1
+            if let err = result.error {
+                if err.reason == .permissionDenied {
+                    permissionFailuresSoFar += 1
                 }
-                
-                let failureCount = files.count - successCount
-                continuation.resume(returning: DeletionResult(
-                    successCount: successCount,
-                    failureCount: failureCount,
-                    freedSpace: freedSpace,
-                    errors: errors
-                ))
+                errors.append(err)
             }
         }
     }
