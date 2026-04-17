@@ -139,10 +139,14 @@ actor DeletionService {
     /// - Permanent: uses parallel FileManager.removeItem (fast but needs FDA
     ///   for protected dirs).
     ///
-    /// Early-abort: if the first handful of attempts all fail with permission
-    /// errors, we stop the whole batch. Running 600 more of the same doomed
-    /// call just wastes time and clutters the error list. The UI can then
-    /// surface the Full Disk Access flow instead of a generic alert.
+    /// Root-owned files (like `/Library/Logs/DiagnosticReports/*`) fall into a
+    /// separate privileged path that runs a single `sudo rm` via AppleScript's
+    /// administrator-privileges facility — one password prompt for the entire
+    /// privileged batch, not 602.
+    ///
+    /// Early-abort: if the first handful of normal attempts all fail with
+    /// permission errors, we stop the rest. The UI can then surface the FDA
+    /// flow instead of a generic alert.
     func deleteFilesFast(
         _ files: [ScannedFileInfo],
         mode: DeleteMode = .moveToTrash
@@ -153,12 +157,221 @@ actor DeletionService {
 
         isCancelled = false
 
-        switch mode {
-        case .moveToTrash:
-            return await trashFilesParallel(files)
-        case .permanent:
-            return await deleteFilesBatchParallel(files)
+        // Split by whether the current user can delete the file without
+        // elevation. `access(parent, W_OK) == 0` is the authoritative test.
+        var regular: [ScannedFileInfo] = []
+        var privileged: [ScannedFileInfo] = []
+        regular.reserveCapacity(files.count)
+        for file in files {
+            if Self.currentUserCanDelete(file.url) {
+                regular.append(file)
+            } else {
+                privileged.append(file)
+            }
         }
+
+        var combined = DeletionResult(successCount: 0, failureCount: 0, freedSpace: 0, errors: [])
+
+        if !regular.isEmpty {
+            let result: DeletionResult
+            switch mode {
+            case .moveToTrash:
+                result = await trashFilesParallel(regular)
+            case .permanent:
+                result = await deleteFilesBatchParallel(regular)
+            }
+            combined = Self.merge(combined, result)
+        }
+
+        // Don't run the admin prompt if the user already bailed on the normal
+        // batch (e.g. FDA missing and everything permission-denied), or if
+        // they cancelled mid-batch.
+        if !privileged.isEmpty && !isCancelled {
+            let result = await deletePrivilegedBatch(privileged)
+            combined = Self.merge(combined, result)
+        }
+
+        return combined
+    }
+
+    /// True if the current process can delete the file without elevation.
+    /// Deletion requires write + execute on the parent directory; we check
+    /// both via `access()`.
+    private nonisolated static func currentUserCanDelete(_ url: URL) -> Bool {
+        let parent = url.deletingLastPathComponent().path
+        return access(parent, W_OK) == 0 && access(parent, X_OK) == 0
+    }
+
+    private nonisolated static func merge(_ a: DeletionResult, _ b: DeletionResult) -> DeletionResult {
+        DeletionResult(
+            successCount: a.successCount + b.successCount,
+            failureCount: a.failureCount + b.failureCount,
+            freedSpace: a.freedSpace + b.freedSpace,
+            errors: a.errors + b.errors
+        )
+    }
+
+    // MARK: - Privileged Delete (admin-elevated via osascript)
+
+    /// Path prefixes for which privileged deletion is allowed. Scans never
+    /// surface files outside these in reclaimable categories, but we re-check
+    /// here — an admin `rm -rf` deserves paranoid validation.
+    private nonisolated static let privilegeableRoots: [String] = [
+        "/Library/Logs/",
+        "/Library/Caches/",
+        "/private/var/log/",
+        "/var/log/",
+        "/private/var/folders/",
+        "/var/folders/",
+        NSHomeDirectory() + "/Library/Logs/",
+        NSHomeDirectory() + "/Library/Caches/",
+        NSHomeDirectory() + "/Library/Saved Application State/",
+        NSHomeDirectory() + "/Library/Developer/Xcode/DerivedData/",
+        NSHomeDirectory() + "/Library/Developer/Xcode/iOS DeviceSupport/",
+        NSHomeDirectory() + "/Library/Developer/Xcode/watchOS DeviceSupport/",
+        NSHomeDirectory() + "/Library/Developer/Xcode/Archives/",
+        NSHomeDirectory() + "/Library/Developer/CoreSimulator/"
+    ]
+
+    private nonisolated static func isSafeToPrivilegedDelete(_ path: String) -> Bool {
+        // Reject traversal and roots.
+        if path.isEmpty || path == "/" || path.contains("/..") {
+            return false
+        }
+        for root in privilegeableRoots where path.hasPrefix(root) {
+            return true
+        }
+        return false
+    }
+
+    /// Delete root-owned files by running one privileged `xargs rm` invocation.
+    /// Produces a single macOS password prompt for the entire batch, regardless
+    /// of file count. Paths are passed via a NUL-delimited temp file so file
+    /// names with spaces or quotes are handled correctly.
+    private func deletePrivilegedBatch(_ files: [ScannedFileInfo]) async -> DeletionResult {
+        // Partition into allowed vs rejected (defense in depth).
+        var allowed: [ScannedFileInfo] = []
+        var rejected: [DeletionError] = []
+        allowed.reserveCapacity(files.count)
+        for file in files {
+            if Self.isSafeToPrivilegedDelete(file.url.path) {
+                allowed.append(file)
+            } else {
+                rejected.append(DeletionError(
+                    url: file.url,
+                    error: "Refused to elevate: path not under a known reclaimable root.",
+                    reason: .other
+                ))
+            }
+        }
+
+        if allowed.isEmpty {
+            return DeletionResult(
+                successCount: 0,
+                failureCount: rejected.count,
+                freedSpace: 0,
+                errors: rejected
+            )
+        }
+
+        // Stage the path list as a NUL-delimited file so weird filenames don't
+        // break the shell. `xargs -0` reads exactly that format.
+        let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("freeup-delete-\(UUID().uuidString).lst")
+        let payload = allowed.map(\.url.path).joined(separator: "\u{0}")
+        do {
+            try payload.data(using: .utf8)?.write(to: tmpURL, options: .atomic)
+        } catch {
+            return DeletionResult(
+                successCount: 0,
+                failureCount: allowed.count + rejected.count,
+                freedSpace: 0,
+                errors: rejected + allowed.map {
+                    DeletionError(url: $0.url, error: "Couldn't stage privileged batch: \(error.localizedDescription)", reason: .other)
+                }
+            )
+        }
+        defer { try? FileManager.default.removeItem(at: tmpURL) }
+
+        // The temp file path goes into the shell script — escape any single
+        // quotes defensively (NSTemporaryDirectory is usually `/var/folders/…`
+        // without quotes, but don't assume).
+        let escapedTmp = tmpURL.path.replacingOccurrences(of: "'", with: "'\\''")
+        let command = "/usr/bin/xargs -0 /bin/rm -rf < '\(escapedTmp)'"
+        // `with prompt` customises the auth prompt that macOS shows on top of
+        // the password sheet.
+        let scriptSource = """
+        do shell script "\(command.replacingOccurrences(of: "\"", with: "\\\""))" with administrator privileges with prompt "FreeUp needs administrator access to remove system-owned cache and log files."
+        """
+
+        // Run AppleScript off the actor — the password prompt must block the
+        // main queue to appear modal over the app, but we don't want to block
+        // the DeletionService actor. Extract fields inside the Task because
+        // NSDictionary isn't Sendable.
+        struct ScriptError: Sendable {
+            let code: Int
+            let message: String
+        }
+        let scriptError: ScriptError? = await Task.detached(priority: .userInitiated) {
+            var errorInfo: NSDictionary?
+            let appleScript = NSAppleScript(source: scriptSource)
+            _ = appleScript?.executeAndReturnError(&errorInfo)
+            guard let info = errorInfo else { return nil }
+            return ScriptError(
+                code: (info["NSAppleScriptErrorNumber"] as? Int) ?? -1,
+                message: (info["NSAppleScriptErrorMessage"] as? String) ?? "Admin deletion failed."
+            )
+        }.value
+
+        if let error = scriptError {
+            // -128 = user cancelled the auth prompt. Everything else is some
+            // shell or scripting failure.
+            let message: String
+            let reason: DeletionFailureReason
+            if error.code == -128 {
+                message = "Cancelled by user."
+                reason = .permissionDenied
+            } else {
+                message = error.message
+                reason = .other
+            }
+            return DeletionResult(
+                successCount: 0,
+                failureCount: allowed.count + rejected.count,
+                freedSpace: 0,
+                errors: rejected + allowed.map {
+                    DeletionError(url: $0.url, error: message, reason: reason)
+                }
+            )
+        }
+
+        // Verify one-by-one — `rm -f` swallows per-file errors. We re-check
+        // existence to compute the real success count.
+        var successCount = 0
+        var failureCount = rejected.count
+        var freedSpace: Int64 = 0
+        var errors: [DeletionError] = rejected
+        let fm = FileManager.default
+        for file in allowed {
+            if !fm.fileExists(atPath: file.url.path) {
+                successCount += 1
+                freedSpace += file.allocatedSize
+            } else {
+                failureCount += 1
+                errors.append(DeletionError(
+                    url: file.url,
+                    error: "File still present after admin delete.",
+                    reason: .other
+                ))
+            }
+        }
+
+        return DeletionResult(
+            successCount: successCount,
+            failureCount: failureCount,
+            freedSpace: freedSpace,
+            errors: errors
+        )
     }
 
     // MARK: - Batch Trash via FileManager.trashItem (parallel)
