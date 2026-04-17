@@ -265,7 +265,6 @@ private struct Sidebar: View {
                     Text("\(viewModel.totalFilesScanned)")
                         .font(FUFont.monoCaption)
                         .foregroundStyle(.secondary)
-                        .contentTransition(.numericText())
                 }
             }
             .padding(.vertical, 5)
@@ -458,7 +457,6 @@ private struct OverviewPane: View {
                 Text("\(viewModel.totalFilesScanned)")
                     .font(FUFont.hero)
                     .foregroundStyle(.primary)
-                    .contentTransition(.numericText())
                 Text("files found so far")
                     .font(FUFont.caption)
                     .foregroundStyle(.tertiary)
@@ -477,7 +475,6 @@ private struct OverviewPane: View {
             Text(ByteFormatter.format(reclaimable))
                 .font(FUFont.hero)
                 .foregroundStyle(.primary)
-                .contentTransition(.numericText())
                 .monospacedDigit()
 
             if reclaimable > 0 {

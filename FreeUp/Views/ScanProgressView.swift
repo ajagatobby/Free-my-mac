@@ -97,7 +97,6 @@ struct ScanProgressView: View {
             Text(value)
                 .font(FUFont.heroSmall)
                 .foregroundStyle(.primary)
-                .contentTransition(.numericText())
             Text(label)
                 .font(FUFont.label)
                 .foregroundStyle(.tertiary)
@@ -127,7 +126,6 @@ struct InlineScanProgress: View {
                 Text("\(filesScanned) files")
                     .font(FUFont.monoCaption)
                     .foregroundStyle(.secondary)
-                    .contentTransition(.numericText())
             case .detectingDuplicates:
                 Text("finding duplicates")
                     .font(FUFont.caption)
