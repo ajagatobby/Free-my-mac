@@ -32,11 +32,27 @@ struct DeletionResult: Sendable {
 
 /// Why a specific file failed to delete. Used by the UI to decide whether to
 /// offer Full Disk Access guidance vs a generic error.
-enum DeletionFailureReason: Sendable, Equatable {
+/// `nonisolated` so off-actor tasks can compare/return values freely — Swift 6
+/// strict concurrency otherwise infers `@MainActor` from the project default.
+enum DeletionFailureReason: Sendable {
     case permissionDenied
     case fileNotFound
     case busyOrLocked
     case other
+}
+
+extension DeletionFailureReason: Equatable {
+    nonisolated static func == (lhs: DeletionFailureReason, rhs: DeletionFailureReason) -> Bool {
+        switch (lhs, rhs) {
+        case (.permissionDenied, .permissionDenied),
+             (.fileNotFound, .fileNotFound),
+             (.busyOrLocked, .busyOrLocked),
+             (.other, .other):
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 /// Error during deletion
@@ -46,14 +62,14 @@ struct DeletionError: Sendable, Identifiable {
     let error: String
     let reason: DeletionFailureReason
 
-    init(url: URL, error: String, reason: DeletionFailureReason = .other) {
+    nonisolated init(url: URL, error: String, reason: DeletionFailureReason = .other) {
         self.url = url
         self.error = error
         self.reason = reason
     }
 
     /// Classify an `NSError` (usually from FileManager) into a reason.
-    static func classify(_ error: Error) -> DeletionFailureReason {
+    nonisolated static func classify(_ error: Error) -> DeletionFailureReason {
         let ns = error as NSError
         // Cocoa-level classification first.
         switch ns.code {
