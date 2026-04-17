@@ -310,18 +310,24 @@ private struct Sidebar: View {
             }
 
             if let info = viewModel.volumeInfo {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 6) {
+                        Image(systemName: "internaldrive")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
                         Text(info.name)
-                            .font(FUFont.caption)
+                            .font(FUFont.captionMedium)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.tail)
                         Spacer(minLength: 4)
-                        Text("\(ByteFormatter.format(info.availableCapacity)) free")
-                            .font(FUFont.monoCaption)
-                            .foregroundStyle(.tertiary)
+                        Text(ByteFormatter.format(info.availableCapacity))
+                            .font(FUFont.monoSmall)
+                            .foregroundStyle(.secondary)
                             .layoutPriority(1)
+                        Text("free")
+                            .font(FUFont.label)
+                            .foregroundStyle(.tertiary)
                     }
 
                     StorageBar(volumeInfo: info, reclaimableSpace: viewModel.reclaimableSpace)
