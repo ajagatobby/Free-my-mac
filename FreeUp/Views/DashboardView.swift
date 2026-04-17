@@ -47,7 +47,7 @@ struct DashboardView: View {
                 sortedCategories: sortedCategories,
                 isScanning: isScanning
             )
-            .frame(width: 256)
+            .frame(width: 220)
             .background(Color(.controlBackgroundColor))
 
             Rectangle()
@@ -479,7 +479,8 @@ private struct OverviewPane: View {
                 // overlap into a blurry ghost.
                 .contentTransition(.numericText())
                 .animation(.snappy(duration: 0.25), value: displayedReclaimable)
-                .frame(width: 420, alignment: .center)
+                .frame(maxWidth: 420)
+                .frame(minWidth: 320)
 
             if displayedReclaimable > 0 {
                 Button(action: onClean) {

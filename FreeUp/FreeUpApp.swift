@@ -80,7 +80,10 @@ struct FreeUpApp: App {
     var body: some Scene {
         WindowGroup {
             DashboardView(viewModel: scanViewModel)
-                .frame(minWidth: 880, minHeight: 580)
+                .frame(
+                    minWidth: 760, idealWidth: 820,
+                    minHeight: 500, idealHeight: 560
+                )
         }
         .modelContainer(sharedModelContainer)
         // Hidden title bar so the traffic lights overlay the sidebar's top
