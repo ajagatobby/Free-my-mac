@@ -2,13 +2,12 @@
 //  DashboardView.swift
 //  FreeUp
 //
-//  Raycast/Linear-inspired dashboard. Two panes:
-//  - Sidebar: dense, minimal, monospace sizes, no colored tiles.
-//  - Detail: either the overview (single hero number + CTA + category list)
-//    or a specific category / duplicates view.
+//  Custom two-pane layout — no NavigationSplitView, no .sidebar material
+//  that leaks the desktop wallpaper through. Plain HStack with a solid
+//  sidebar on the left and a hairline separator.
 //
-//  Zero animations on the sidebar and zero decorative chrome on the
-//  overview. Numbers are the visual motif.
+//  The window uses .hiddenTitleBar so the traffic lights overlay the
+//  sidebar's top padding. Gives a unified, modern look like Linear/Raycast.
 //
 
 import SwiftUI
@@ -18,7 +17,6 @@ struct DashboardView: View {
     @State private var selectedCategory: FileCategory?
     @State private var showingPermissionsSheet = false
     @State private var showCleanupConfirmation = false
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     private var isScanning: Bool {
         if case .scanning = viewModel.scanState { return true }
@@ -42,14 +40,25 @@ struct DashboardView: View {
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            sidebar
-                .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 280)
-        } detail: {
+        HStack(spacing: 0) {
+            Sidebar(
+                viewModel: viewModel,
+                selected: $selectedCategory,
+                sortedCategories: sortedCategories,
+                isScanning: isScanning
+            )
+            .frame(width: 248)
+
+            // Solid vertical hairline between panes.
+            Rectangle()
+                .fill(Color(.separatorColor))
+                .frame(width: 1)
+                .ignoresSafeArea()
+
             detail
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .navigationSplitViewStyle(.balanced)
-        // Alerts & sheets unchanged — the behavior stays the same.
+        .background(Color(.windowBackgroundColor))
         .alert("Free Up Space", isPresented: $showCleanupConfirmation) {
             Button("Cancel", role: .cancel) { }
             Button(cleanupActionTitle, role: .destructive) {
@@ -116,146 +125,6 @@ struct DashboardView: View {
         return "This will \(verb) \(ByteFormatter.format(viewModel.reclaimableSpace)) of cache, logs, and junk."
     }
 
-    // MARK: - Sidebar
-
-    private var sidebar: some View {
-        List(selection: Binding(
-            get: { selectedCategory?.rawValue },
-            set: { selectedCategory = $0.flatMap { FileCategory(rawValue: $0) } }
-        )) {
-            Button {
-                selectedCategory = nil
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "chart.pie")
-                        .font(.system(size: 12))
-                        .foregroundStyle(selectedCategory == nil ? Color.accentColor : Color.secondary)
-                        .frame(width: 14)
-                    Text("Overview")
-                        .font(FUFont.body)
-                        .foregroundStyle(selectedCategory == nil ? Color.accentColor : Color.primary)
-                    Spacer()
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .listRowSeparator(.hidden)
-
-            if !sortedCategories.isEmpty || isScanning {
-                Section {
-                    ForEach(sortedCategories) { category in
-                        SidebarCategoryRow(
-                            category: category,
-                            stats: viewModel.categoryStats[category],
-                            isSelected: selectedCategory == category,
-                            action: { selectedCategory = category }
-                        )
-                        .tag(category.rawValue)
-                    }
-                } header: {
-                    Text("CATEGORIES")
-                        .font(FUFont.eyebrow)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-        }
-        .listStyle(.sidebar)
-        .animation(nil, value: sortedCategories.map(\.rawValue))
-        .animation(nil, value: isScanning)
-        .safeAreaInset(edge: .top) { sidebarHeader }
-        .safeAreaInset(edge: .bottom) { sidebarFooter }
-    }
-
-    private var sidebarHeader: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 6) {
-                Text("FreeUp")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.primary)
-
-                Spacer()
-
-                Button {
-                    if isScanning {
-                        viewModel.cancelScan()
-                    } else {
-                        Task { await viewModel.startScan() }
-                    }
-                } label: {
-                    Image(systemName: isScanning ? "stop.fill" : "arrow.clockwise")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(isScanning ? Color(nsColor: .systemRed) : Color.accentColor)
-                        .frame(width: 22, height: 22)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(isScanning ? "Stop scan (⌘.)" : "Scan now (⌘R)")
-                .keyboardShortcut(isScanning ? "." : "r", modifiers: .command)
-            }
-
-            // Fixed-height scanning indicator — opacity toggle avoids layout shift.
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.mini)
-                Text("\(viewModel.totalFilesScanned) files")
-                    .font(FUFont.monoCaption)
-                    .foregroundStyle(.secondary)
-                    .contentTransition(.numericText())
-                Spacer()
-            }
-            .frame(height: 14)
-            .opacity(isScanning ? 1 : 0)
-        }
-        .padding(.horizontal, 14)
-        .padding(.top, 10)
-        .padding(.bottom, 6)
-    }
-
-    private var sidebarFooter: some View {
-        VStack(spacing: 10) {
-            Hairline()
-
-            if let info = viewModel.volumeInfo {
-                HStack(spacing: 0) {
-                    Text(info.name)
-                        .font(FUFont.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    Spacer()
-                    Text(ByteFormatter.format(info.availableCapacity))
-                        .font(FUFont.monoCaption)
-                        .foregroundStyle(.secondary)
-                    Text(" / ")
-                        .font(FUFont.caption)
-                        .foregroundStyle(.tertiary)
-                    Text(info.formattedTotal)
-                        .font(FUFont.monoCaption)
-                        .foregroundStyle(.tertiary)
-                }
-
-                StorageBar(volumeInfo: info, reclaimableSpace: viewModel.reclaimableSpace)
-                    .frame(height: 36)
-            }
-
-            if viewModel.fullDiskAccessStatus == .denied {
-                Button {
-                    viewModel.openFullDiskAccessSettings()
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "lock.shield")
-                            .font(.system(size: 10))
-                        Text("Grant Full Disk Access")
-                            .font(FUFont.caption)
-                    }
-                    .foregroundStyle(Color(nsColor: .systemOrange))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.bottom, 10)
-        .padding(.top, 4)
-    }
-
     // MARK: - Detail
 
     @ViewBuilder
@@ -287,9 +156,173 @@ struct DashboardView: View {
     }
 }
 
+// MARK: - Custom sidebar
+
+private struct Sidebar: View {
+    @Bindable var viewModel: ScanViewModel
+    @Binding var selected: FileCategory?
+    let sortedCategories: [FileCategory]
+    let isScanning: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Top spacer reserves room for the traffic lights (~38pt on macOS).
+            Color.clear.frame(height: 36)
+
+            header
+                .padding(.horizontal, 14)
+                .padding(.bottom, 14)
+
+            overviewRow
+                .padding(.horizontal, 10)
+
+            sectionLabel("CATEGORIES")
+                .padding(.horizontal, 14)
+                .padding(.top, 18)
+                .padding(.bottom, 4)
+
+            ScrollView {
+                VStack(spacing: 1) {
+                    ForEach(sortedCategories) { category in
+                        SidebarCategoryRow(
+                            category: category,
+                            stats: viewModel.categoryStats[category],
+                            isSelected: selected == category,
+                            action: { selected = category }
+                        )
+                    }
+                }
+                .padding(.horizontal, 10)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Spacer(minLength: 0)
+
+            footer
+                .padding(.horizontal, 14)
+                .padding(.top, 10)
+                .padding(.bottom, 12)
+        }
+        .background(Color(.windowBackgroundColor))
+    }
+
+    private var header: some View {
+        HStack(spacing: 6) {
+            Text("FreeUp")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.primary)
+
+            Spacer()
+
+            Button {
+                if isScanning {
+                    viewModel.cancelScan()
+                } else {
+                    Task { await viewModel.startScan() }
+                }
+            } label: {
+                Image(systemName: isScanning ? "stop.fill" : "arrow.clockwise")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(isScanning ? Color(nsColor: .systemRed) : Color.accentColor)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(isScanning ? "Stop scan (⌘.)" : "Scan now (⌘R)")
+            .keyboardShortcut(isScanning ? "." : "r", modifiers: .command)
+        }
+    }
+
+    private var overviewRow: some View {
+        Button {
+            selected = nil
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "chart.pie")
+                    .font(.system(size: 12))
+                    .foregroundStyle(selected == nil ? Color.white : Color.secondary)
+                    .frame(width: 14)
+                Text("Overview")
+                    .font(FUFont.body)
+                    .foregroundStyle(selected == nil ? Color.white : Color.primary)
+                Spacer()
+                if isScanning {
+                    Text("\(viewModel.totalFilesScanned)")
+                        .font(FUFont.monoCaption)
+                        .foregroundStyle(selected == nil ? Color.white.opacity(0.85) : Color(.tertiaryLabelColor))
+                        .contentTransition(.numericText())
+                }
+            }
+            .padding(.vertical, 5)
+            .padding(.horizontal, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(selected == nil ? Color.accentColor : Color.clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func sectionLabel(_ text: String) -> some View {
+        HStack {
+            Text(text)
+                .font(FUFont.eyebrow)
+                .foregroundStyle(.tertiary)
+            Spacer()
+        }
+    }
+
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if viewModel.fullDiskAccessStatus == .denied {
+                Button {
+                    viewModel.openFullDiskAccessSettings()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "lock.shield")
+                            .font(.system(size: 10))
+                        Text("Grant Full Disk Access")
+                            .font(FUFont.caption)
+                        Spacer()
+                    }
+                    .foregroundStyle(Color(nsColor: .systemOrange))
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5)
+                            .stroke(Color(nsColor: .systemOrange).opacity(0.3), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+
+            if let info = viewModel.volumeInfo {
+                VStack(alignment: .leading, spacing: 6) {
+                    // Drive name line — name on left, mono free/total on right.
+                    HStack(spacing: 6) {
+                        Text(info.name)
+                            .font(FUFont.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer(minLength: 4)
+                        Text("\(ByteFormatter.format(info.availableCapacity)) free")
+                            .font(FUFont.monoCaption)
+                            .foregroundStyle(.tertiary)
+                            .layoutPriority(1)
+                    }
+
+                    // Compact 3-segment bar — no verbose legend.
+                    StorageBar(volumeInfo: info, reclaimableSpace: viewModel.reclaimableSpace)
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Overview pane
 
-/// The headline pane: eyebrow, hero number, single CTA, category list below.
 private struct OverviewPane: View {
     @Bindable var viewModel: ScanViewModel
     let sortedCategories: [FileCategory]
@@ -302,7 +335,8 @@ private struct OverviewPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Top strip — minimal breadcrumb/toolbar line.
+            // Top bar — reserves traffic-light-equivalent vertical height so
+            // the hero doesn't crowd the top of the window.
             HStack {
                 Text("OVERVIEW")
                     .font(FUFont.eyebrow)
@@ -313,9 +347,8 @@ private struct OverviewPane: View {
                         Text("\(files) files")
                             .font(FUFont.monoCaption)
                             .foregroundStyle(.tertiary)
-                        Text("·")
-                            .foregroundStyle(.quaternary)
-                        Text("\(Self.formatDuration(dur))")
+                        Text("·").foregroundStyle(.quaternary)
+                        Text(Self.formatDuration(dur))
                             .font(FUFont.monoCaption)
                             .foregroundStyle(.tertiary)
                     }
@@ -324,17 +357,17 @@ private struct OverviewPane: View {
                     InlineScanProgress(state: viewModel.scanState, filesScanned: viewModel.totalFilesScanned)
                 }
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 16)
-            .padding(.bottom, 12)
+            .padding(.horizontal, 28)
+            .padding(.top, 40)
+            .padding(.bottom, 14)
 
             Hairline()
 
             ScrollView {
                 VStack(spacing: 0) {
                     hero
-                        .padding(.top, 40)
-                        .padding(.bottom, 36)
+                        .padding(.top, 48)
+                        .padding(.bottom, 40)
 
                     if hasResults {
                         Hairline()
@@ -358,7 +391,6 @@ private struct OverviewPane: View {
         } else if !isScanning {
             firstRunHero
         } else {
-            // Scanning but no results yet (first batch not in) — minimal placeholder.
             VStack(spacing: 12) {
                 Text("SCANNING")
                     .font(FUFont.eyebrow)
@@ -376,7 +408,7 @@ private struct OverviewPane: View {
     }
 
     private var hasResultsHero: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 16) {
             Text(reclaimable > 0 ? "RECLAIMABLE" : "ALL CLEAN")
                 .font(FUFont.eyebrow)
                 .foregroundStyle(.tertiary)
@@ -388,7 +420,7 @@ private struct OverviewPane: View {
                 .monospacedDigit()
 
             if reclaimable > 0 {
-                HStack(spacing: 10) {
+                HStack(spacing: 12) {
                     Button(action: onClean) {
                         HStack(spacing: 8) {
                             Text("Free Up")
@@ -417,6 +449,7 @@ private struct OverviewPane: View {
                     .foregroundStyle(.secondary)
                     .keyboardShortcut("r", modifiers: .command)
                 }
+                .padding(.top, 4)
             } else {
                 Text("Nothing to reclaim right now.")
                     .font(FUFont.caption)
@@ -439,7 +472,7 @@ private struct OverviewPane: View {
             Button {
                 Task { await viewModel.startScan() }
             } label: {
-                HStack(spacing: 6) {
+                HStack(spacing: 8) {
                     Text("Scan")
                         .font(.system(size: 14, weight: .semibold))
                     Text("⌘R")
@@ -516,9 +549,8 @@ private struct OverviewCategoryRow: View {
                 Text(category.rawValue)
                     .font(FUFont.body)
                     .foregroundStyle(.primary)
-                    .frame(width: 150, alignment: .leading)
+                    .frame(width: 160, alignment: .leading)
 
-                // Micro bar — conveys share of reclaimable at a glance.
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 1.5)
@@ -535,12 +567,12 @@ private struct OverviewCategoryRow: View {
                 Text("\(stats?.count ?? 0)")
                     .font(FUFont.monoCaption)
                     .foregroundStyle(.tertiary)
-                    .frame(width: 48, alignment: .trailing)
+                    .frame(width: 56, alignment: .trailing)
 
                 Text(ByteFormatter.format(size))
                     .font(FUFont.mono)
                     .foregroundStyle(.primary)
-                    .frame(width: 72, alignment: .trailing)
+                    .frame(width: 76, alignment: .trailing)
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 9, weight: .semibold))
@@ -557,7 +589,7 @@ private struct OverviewCategoryRow: View {
     }
 }
 
-// MARK: - Warning banner (kept for reuse; now hairline-bordered, not material-filled)
+// MARK: - Warning banner (kept — hairline-bordered)
 
 struct WarningBanner: View {
     let icon: String

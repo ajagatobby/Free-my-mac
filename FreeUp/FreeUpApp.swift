@@ -80,8 +80,9 @@ struct FreeUpApp: App {
                 .frame(minWidth: 1000, minHeight: 650)
         }
         .modelContainer(sharedModelContainer)
-        .windowStyle(.automatic)
-        .windowToolbarStyle(.unified(showsTitle: true))
+        // Hidden title bar so the traffic lights overlay the sidebar's top
+        // padding — same pattern Linear/Raycast/Notion use.
+        .windowStyle(.hiddenTitleBar)
         .commands {
             // File menu commands
             CommandGroup(replacing: .newItem) {

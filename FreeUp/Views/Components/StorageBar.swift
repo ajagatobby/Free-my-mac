@@ -2,8 +2,9 @@
 //  StorageBar.swift
 //  FreeUp
 //
-//  Compact storage bar — 4px strip with three segments (used/reclaimable/free)
-//  and a one-line mono legend. Replaces the old card-style storage view.
+//  Compact 4px three-segment strip — used/reclaimable/free.
+//  No inline legend; the numeric readout is rendered by the caller so
+//  narrow sidebars don't force abbreviation-hell truncation.
 //
 
 import SwiftUI
@@ -24,48 +25,34 @@ struct StorageBar: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            GeometryReader { geo in
-                let w = geo.size.width
-                HStack(spacing: 1) {
-                    if usedRatio > 0 {
-                        Rectangle()
-                            .fill(Color.secondary)
-                            .frame(width: w * usedRatio)
-                    }
-                    if reclaimableRatio > 0 {
-                        Rectangle()
-                            .fill(Color.accentColor)
-                            .frame(width: w * reclaimableRatio)
-                    }
+        GeometryReader { geo in
+            let w = geo.size.width
+            HStack(spacing: 1) {
+                if usedRatio > 0 {
                     Rectangle()
-                        .fill(Color(.quaternaryLabelColor))
+                        .fill(Color.secondary)
+                        .frame(width: w * usedRatio)
                 }
-            }
-            .frame(height: 4)
-            .clipShape(Capsule())
-
-            HStack(spacing: 14) {
-                legendItem(color: .secondary, label: "Used",
-                           value: volumeInfo.map { ByteFormatter.format(max($0.usedCapacity - reclaimableSpace, 0)) })
-                if reclaimableSpace > 0 {
-                    legendItem(color: .accentColor, label: "Reclaimable",
-                               value: ByteFormatter.format(reclaimableSpace))
+                if reclaimableRatio > 0 {
+                    Rectangle()
+                        .fill(Color.accentColor)
+                        .frame(width: w * reclaimableRatio)
                 }
-                legendItem(color: Color(.quaternaryLabelColor), label: "Free",
-                           value: volumeInfo?.formattedAvailable)
-                Spacer()
+                Rectangle()
+                    .fill(Color(.quaternaryLabelColor))
             }
         }
+        .frame(height: 4)
+        .clipShape(Capsule())
+        .help(helpText)
     }
 
-    private func legendItem(color: Color, label: String, value: String?) -> some View {
-        HStack(spacing: 5) {
-            Circle().fill(color).frame(width: 5, height: 5)
-            Text(label).font(FUFont.caption).foregroundStyle(.tertiary)
-            if let value {
-                Text(value).font(FUFont.monoCaption).foregroundStyle(.secondary)
-            }
-        }
+    private var helpText: String {
+        guard let info = volumeInfo else { return "" }
+        let used = max(info.usedCapacity - reclaimableSpace, 0)
+        let usedStr = ByteFormatter.format(used)
+        let reclaimStr = ByteFormatter.format(reclaimableSpace)
+        let freeStr = ByteFormatter.format(info.availableCapacity)
+        return "Used \(usedStr) · Reclaimable \(reclaimStr) · Free \(freeStr)"
     }
 }
