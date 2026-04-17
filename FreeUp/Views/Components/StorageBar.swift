@@ -2,22 +2,20 @@
 //  StorageBar.swift
 //  FreeUp
 //
-//  Created by Abdulbasit Ajaga on 02/02/2026.
+//  Compact storage bar — 4px strip with three segments (used/reclaimable/free)
+//  and a one-line mono legend. Replaces the old card-style storage view.
 //
 
 import SwiftUI
 
-/// Simple, native-feeling storage breakdown bar.
 struct StorageBar: View {
     let volumeInfo: VolumeInfo?
     let reclaimableSpace: Int64
 
-    @State private var animateProgress = false
-
     private var usedRatio: Double {
         guard let info = volumeInfo, info.totalCapacity > 0 else { return 0 }
-        let netUsed = max(info.usedCapacity - reclaimableSpace, 0)
-        return Double(netUsed) / Double(info.totalCapacity)
+        let net = max(info.usedCapacity - reclaimableSpace, 0)
+        return Double(net) / Double(info.totalCapacity)
     }
 
     private var reclaimableRatio: Double {
@@ -26,93 +24,47 @@ struct StorageBar: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // Header
-            HStack(alignment: .firstTextBaseline) {
-                Label(volumeInfo?.name ?? "Storage", systemImage: "internaldrive")
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-
-                Spacer()
-
-                if let info = volumeInfo {
-                    Text("\(ByteFormatter.format(info.availableCapacity)) available of \(info.formattedTotal)")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            // Bar
+        VStack(alignment: .leading, spacing: 6) {
             GeometryReader { geo in
                 let w = geo.size.width
-                HStack(spacing: 1.5) {
-                    // Used
+                HStack(spacing: 1) {
                     if usedRatio > 0 {
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(Color.blue)
-                            .frame(width: animateProgress ? w * usedRatio : 0)
+                        Rectangle()
+                            .fill(Color.secondary)
+                            .frame(width: w * usedRatio)
                     }
-                    // Reclaimable
-                    if reclaimableSpace > 0, reclaimableRatio > 0 {
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(Color.orange)
-                            .frame(width: animateProgress ? w * reclaimableRatio : 0)
+                    if reclaimableRatio > 0 {
+                        Rectangle()
+                            .fill(Color.accentColor)
+                            .frame(width: w * reclaimableRatio)
                     }
-                    // Free
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(Color(.separatorColor))
+                    Rectangle()
+                        .fill(Color(.quaternaryLabelColor))
                 }
             }
-            .frame(height: 8)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .frame(height: 4)
+            .clipShape(Capsule())
 
-            // Legend
-            HStack(spacing: 16) {
-                LegendDot(color: .blue, label: "Used",
-                          value: volumeInfo.map { ByteFormatter.format(max($0.usedCapacity - reclaimableSpace, 0)) })
+            HStack(spacing: 14) {
+                legendItem(color: .secondary, label: "Used",
+                           value: volumeInfo.map { ByteFormatter.format(max($0.usedCapacity - reclaimableSpace, 0)) })
                 if reclaimableSpace > 0 {
-                    LegendDot(color: .orange, label: "Reclaimable",
-                              value: ByteFormatter.format(reclaimableSpace))
+                    legendItem(color: .accentColor, label: "Reclaimable",
+                               value: ByteFormatter.format(reclaimableSpace))
                 }
-                LegendDot(color: Color(.separatorColor), label: "Available",
-                          value: volumeInfo?.formattedAvailable)
+                legendItem(color: Color(.quaternaryLabelColor), label: "Free",
+                           value: volumeInfo?.formattedAvailable)
+                Spacer()
             }
-        }
-        .padding(16)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .onAppear {
-            withAnimation(.easeOut(duration: 0.8).delay(0.1)) {
-                animateProgress = true
-            }
-        }
-        .onChange(of: volumeInfo?.usedCapacity) {
-            animateProgress = false
-            withAnimation(.easeOut(duration: 0.5)) { animateProgress = true }
-        }
-        .onChange(of: reclaimableSpace) {
-            animateProgress = false
-            withAnimation(.easeOut(duration: 0.5)) { animateProgress = true }
         }
     }
-}
 
-private struct LegendDot: View {
-    let color: Color
-    let label: String
-    let value: String?
-
-    var body: some View {
+    private func legendItem(color: Color, label: String, value: String?) -> some View {
         HStack(spacing: 5) {
-            Circle()
-                .fill(color)
-                .frame(width: 6, height: 6)
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+            Circle().fill(color).frame(width: 5, height: 5)
+            Text(label).font(FUFont.caption).foregroundStyle(.tertiary)
             if let value {
-                Text(value)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(value).font(FUFont.monoCaption).foregroundStyle(.secondary)
             }
         }
     }

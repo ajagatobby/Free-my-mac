@@ -2,72 +2,12 @@
 //  ScanProgressView.swift
 //  FreeUp
 //
-//  CleanMyMac-style scan progress with animated orbital ring + glow.
+//  Minimal full-screen scan state — centered stats + thin progress bar.
+//  No orbital rings, no glows, no pulse.
 //
 
 import SwiftUI
 
-// MARK: - Orbital Ring
-
-/// Animated ring that orbits around a center point — CleanMyMac-inspired.
-private struct OrbitalRing: View {
-    let progress: Double
-
-    @State private var rotation: Double = 0
-    @State private var appeared = false
-
-    var body: some View {
-        ZStack {
-            // Background track
-            Circle()
-                .stroke(Color(.separatorColor).opacity(0.3), lineWidth: 4)
-
-            // Progress arc
-            Circle()
-                .trim(from: 0, to: min(progress, 1.0))
-                .stroke(
-                    AngularGradient(
-                        colors: [
-                            Color.accentColor.opacity(0),
-                            Color.accentColor,
-                            Color.accentColor
-                        ],
-                        center: .center
-                    ),
-                    style: StrokeStyle(lineWidth: 4, lineCap: .round)
-                )
-                .rotationEffect(.degrees(-90))
-
-            // Glow layer
-            Circle()
-                .trim(from: 0, to: min(progress, 1.0))
-                .stroke(
-                    Color.accentColor.opacity(0.3),
-                    style: StrokeStyle(lineWidth: 10, lineCap: .round)
-                )
-                .blur(radius: 8)
-                .rotationEffect(.degrees(-90))
-
-            // Orbiting dot
-            Circle()
-                .fill(Color.accentColor)
-                .frame(width: 8, height: 8)
-                .shadow(color: Color.accentColor.opacity(0.7), radius: 6)
-                .offset(y: -48)
-                .rotationEffect(.degrees(rotation))
-        }
-        .frame(width: 96, height: 96)
-        .onAppear {
-            withAnimation(.linear(duration: 2).repeatForever(autoreverses: false)) {
-                rotation = 360
-            }
-        }
-    }
-}
-
-// MARK: - ScanProgressView
-
-/// Full scan progress overlay — centered card with orbital ring.
 struct ScanProgressView: View {
     let state: ScanState
     let filesScanned: Int
@@ -88,119 +28,109 @@ struct ScanProgressView: View {
     }
 
     private var title: String {
-        switch state {
-        case .detectingDuplicates: return "Finding Duplicates..."
-        default: return "Scanning Your Mac..."
-        }
+        if case .detectingDuplicates = state { return "Finding duplicates" }
+        return "Scanning"
     }
 
     var body: some View {
         VStack(spacing: 0) {
             Spacer()
 
-            // Ring + icon
-            ZStack {
-                OrbitalRing(progress: progress)
-
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 24, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.bottom, 24)
-
-            // Title
-            Text(title)
-                .font(.title3.weight(.medium))
-                .foregroundStyle(.primary)
-                .padding(.bottom, 4)
-
-            // Directory
-            if let dir = currentDirectory {
-                Text(dir)
-                    .font(.caption.monospaced())
+            VStack(spacing: 24) {
+                // Eyebrow
+                Text(title.uppercased())
+                    .font(FUFont.eyebrow)
                     .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: 280)
-                    .padding(.bottom, 12)
-            }
 
-            // Stats
-            HStack(spacing: 24) {
-                VStack(spacing: 2) {
-                    Text(formatNumber(filesScanned))
-                        .font(.title2.weight(.semibold).monospacedDigit())
-                        .foregroundStyle(.primary)
-                        .contentTransition(.numericText())
-                    Text("files found")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                // Hero stats — two big mono numbers side by side
+                HStack(alignment: .firstTextBaseline, spacing: 24) {
+                    stat(
+                        value: formatCount(filesScanned),
+                        label: "files"
+                    )
+
+                    Rectangle()
+                        .fill(Color(.separatorColor))
+                        .frame(width: 1, height: 32)
+
+                    stat(
+                        value: ByteFormatter.format(sizeScanned),
+                        label: "scanned"
+                    )
                 }
-                
-                Divider().frame(height: 30)
 
-                VStack(spacing: 2) {
-                    Text(ByteFormatter.format(sizeScanned))
-                        .font(.title2.weight(.semibold).monospacedDigit())
-                        .foregroundStyle(.primary)
-                        .contentTransition(.numericText())
-                    Text("analyzed")
-                        .font(.caption2)
+                // Progress bar
+                ProgressView(value: progress)
+                    .progressViewStyle(.linear)
+                    .tint(Color.accentColor)
+                    .frame(width: 220)
+
+                // Current directory
+                if let dir = currentDirectory {
+                    Text(dir)
+                        .font(FUFont.monoCaption)
                         .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: 320)
+                } else {
+                    Text(" ")
+                        .font(FUFont.monoCaption)
                 }
+
+                // Cancel
+                Button("Cancel", action: onCancel)
+                    .buttonStyle(.plain)
+                    .font(FUFont.bodyMedium)
+                    .foregroundStyle(.secondary)
+                    .keyboardShortcut(.cancelAction)
             }
-            .padding(.bottom, 20)
-
-            // Progress bar
-            ProgressView(value: progress)
-                .tint(Color.accentColor)
-                .frame(width: 200)
-                .padding(.bottom, 6)
-
-            Text("\(Int(progress * 100))%")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.tertiary)
-                .padding(.bottom, 20)
-
-            // Cancel
-            Button("Cancel", action: onCancel)
-                .buttonStyle(.bordered)
-                .controlSize(.small)
 
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.ultraThinMaterial)
-        .animation(.easeInOut(duration: 0.3), value: progress)
-        .animation(.easeInOut(duration: 0.3), value: filesScanned)
+        .background(Color(.windowBackgroundColor))
     }
 
-    private func formatNumber(_ n: Int) -> String {
+    private func stat(value: String, label: String) -> some View {
+        VStack(spacing: 4) {
+            Text(value)
+                .font(FUFont.heroSmall)
+                .foregroundStyle(.primary)
+                .contentTransition(.numericText())
+            Text(label)
+                .font(FUFont.label)
+                .foregroundStyle(.tertiary)
+                .textCase(.uppercase)
+        }
+    }
+
+    private func formatCount(_ n: Int) -> String {
         let f = NumberFormatter()
         f.numberStyle = .decimal
         return f.string(from: NSNumber(value: n)) ?? "\(n)"
     }
 }
 
-// MARK: - InlineScanProgress
+// MARK: - Inline progress (for embedded use)
 
 struct InlineScanProgress: View {
     let state: ScanState
     let filesScanned: Int
 
     var body: some View {
-        HStack(spacing: 6) {
-            ProgressView()
-                .controlSize(.small)
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.mini)
 
             switch state {
             case .scanning:
-                Text("\(filesScanned) files...")
-                    .font(.caption)
+                Text("\(filesScanned) files")
+                    .font(FUFont.monoCaption)
                     .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
             case .detectingDuplicates:
-                Text("Finding duplicates...")
-                    .font(.caption)
+                Text("finding duplicates")
+                    .font(FUFont.caption)
                     .foregroundStyle(.secondary)
             default:
                 EmptyView()

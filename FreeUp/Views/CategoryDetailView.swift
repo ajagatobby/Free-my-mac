@@ -2,7 +2,7 @@
 //  CategoryDetailView.swift
 //  FreeUp
 //
-//  Created by Abdulbasit Ajaga on 02/02/2026.
+//  Detail pane for a single category. Minimal header, dense list.
 //
 
 import SwiftUI
@@ -11,24 +11,15 @@ import UniformTypeIdentifiers
 
 // MARK: - Lightweight display model
 
-/// Pre-computed group for display — built once off main thread, not per-render
 private struct DisplayGroup: Identifiable, Sendable {
     let id: String
     let source: String
     let fileCount: Int
     let totalSize: Int64
-    /// Only the top N files for display — avoids holding 20k structs in view state
     let previewFiles: [ScannedFileInfo]
-    /// All file IDs in this group (for select-all, lightweight)
     let allFileIDs: [UUID]
 }
 
-/// Detail view for a specific file category.
-/// Performance strategy:
-/// - Don't accept a files array prop (avoids 20k element copy on navigation)
-/// - Sort/group off main thread via Task
-/// - Track selection count incrementally, not by iterating all files
-/// - Show only top 200 files per section; load more on demand
 struct CategoryDetailView: View {
     let category: FileCategory
     @Bindable var viewModel: ScanViewModel
@@ -38,7 +29,6 @@ struct CategoryDetailView: View {
     @State private var showCloneWarning = false
     @State private var expandedSections: Set<String> = []
 
-    // Pre-computed display data (built off main thread)
     @State private var displayGroups: [DisplayGroup] = []
     @State private var displayFlatFiles: [ScannedFileInfo] = []
     @State private var hasMultipleSources = false
@@ -46,70 +36,32 @@ struct CategoryDetailView: View {
     @State private var totalSize: Int64 = 0
     @State private var isLoading = true
 
-    // Selection tracking — updated incrementally, NOT by iterating all files
     @State private var localSelectedCount: Int = 0
     @State private var localSelectedSize: Int64 = 0
 
-    /// Max files to show per section (pagination)
     private let pageSize = 200
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            CategoryHeader(
-                category: category,
-                totalFiles: totalFileCount,
-                totalSize: totalSize,
-                selectedCount: localSelectedCount,
-                selectedSize: localSelectedSize
-            )
+            header
+            Hairline()
+            toolbar
+            Hairline()
 
-            // Inline toolbar: search + sort + select all
-            HStack(spacing: 8) {
-                // Search field
-                HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.tertiary)
-                    TextField("Search files...", text: $searchText)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 12))
-                        .foregroundStyle(.primary)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(Color(.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-
-                sortMenu
-                    .font(.system(size: 11, weight: .medium))
-
-                selectAllButton
-                    .font(.system(size: 11, weight: .medium))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color(.controlBackgroundColor))
-
-            Rectangle()
-                .fill(Color(.separatorColor))
-                .frame(height: 1)
-
-            // Scrollable content area — fills all remaining space below the fixed header
             Group {
                 if isLoading {
-                    VStack(spacing: 12) {
-                        ProgressView()
-                            .tint(.secondary)
-                        Text("Loading files...")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                    VStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Loading")
+                            .font(FUFont.caption)
+                            .foregroundStyle(.tertiary)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if displayFlatFiles.isEmpty && displayGroups.isEmpty {
                     ContentUnavailableView(
-                        searchText.isEmpty ? "No Files" : "No Results",
-                        systemImage: searchText.isEmpty ? "folder" : "magnifyingglass",
-                        description: Text(searchText.isEmpty ? "No files found in this category" : "Try a different search term")
+                        searchText.isEmpty ? "No files" : "No results",
+                        systemImage: searchText.isEmpty ? "tray" : "magnifyingglass",
+                        description: Text(searchText.isEmpty ? "This category is empty." : "Try a different search term.")
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if hasMultipleSources {
@@ -121,8 +73,8 @@ struct CategoryDetailView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(.windowBackgroundColor))
 
-            // Bottom action bar
             if localSelectedCount > 0 {
+                Hairline()
                 SelectionActionBar(
                     selectedCount: localSelectedCount,
                     selectedSize: localSelectedSize,
@@ -133,24 +85,86 @@ struct CategoryDetailView: View {
                             recomputeSelectionFromScratch()
                         }
                     },
-                    onDeselect: {
-                        deselectAll()
-                    }
+                    onDeselect: { deselectAll() }
                 )
             }
         }
         .background(Color(.windowBackgroundColor))
-        .alert("Clone Warning", isPresented: $showCloneWarning) {
+        .alert("Clone detected", isPresented: $showCloneWarning) {
             Button("OK") { }
         } message: {
-            Text("This file appears to be an APFS clone. Deleting it may not free disk space if other files share the same data blocks.")
+            Text("This file shares data blocks with another file (APFS clone). Deleting it may not free the expected space.")
         }
         .task(id: SortSearchKey(sort: sortOrder, search: searchText, fileCount: viewModel.files(for: category).count)) {
             await rebuildDisplayData()
         }
     }
 
-    // MARK: - Grouped List
+    // MARK: Header — minimal. No icon tile. Mono numbers.
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                CategoryDot(color: category.themeColor, size: 7)
+                Text(category.rawValue.uppercased())
+                    .font(FUFont.eyebrow)
+                    .foregroundStyle(.tertiary)
+                Spacer()
+                if localSelectedCount > 0 {
+                    Text("\(localSelectedCount) selected · \(ByteFormatter.format(localSelectedSize))")
+                        .font(FUFont.monoCaption)
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(ByteFormatter.format(totalSize))
+                    .font(FUFont.heroSmall)
+                    .foregroundStyle(.primary)
+
+                Text("\(totalFileCount) files")
+                    .font(FUFont.bodyMedium)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 14)
+        .padding(.bottom, 12)
+    }
+
+    // MARK: Toolbar
+
+    private var toolbar: some View {
+        HStack(spacing: 8) {
+            // Search
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                TextField("Search", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(FUFont.caption)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color(.quaternaryLabelColor).opacity(0.4))
+            )
+            .frame(maxWidth: 240)
+
+            Spacer()
+
+            sortMenu
+            selectAllButton
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+    }
+
+    // MARK: Lists
 
     private var groupedListView: some View {
         ScrollView {
@@ -162,11 +176,11 @@ struct CategoryDetailView: View {
                                 fileRow(for: file, index: index)
                             }
                             if group.fileCount > group.previewFiles.count {
-                                Text("\(group.fileCount - group.previewFiles.count) more files...")
-                                    .font(.caption)
+                                Text("\(group.fileCount - group.previewFiles.count) more")
+                                    .font(FUFont.caption)
                                     .foregroundStyle(.tertiary)
                                     .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 8)
+                                    .padding(.vertical, 6)
                             }
                         }
                     } header: {
@@ -177,40 +191,35 @@ struct CategoryDetailView: View {
                             isCollapsed: !expandedSections.contains(group.source),
                             color: category.themeColor,
                             onToggle: {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    if expandedSections.contains(group.source) {
-                                        expandedSections.remove(group.source)
-                                    } else {
-                                        expandedSections.insert(group.source)
-                                    }
+                                if expandedSections.contains(group.source) {
+                                    expandedSections.remove(group.source)
+                                } else {
+                                    expandedSections.insert(group.source)
                                 }
                             },
                             onSelectAll: {
                                 selectFiles(ids: group.allFileIDs, files: group.previewFiles)
                             }
                         )
-                        .background(Color(.controlBackgroundColor))
+                        .background(Color(.windowBackgroundColor))
                     }
                 }
             }
-            .padding(.horizontal, 8)
         }
     }
-
-    // MARK: - Flat List
 
     private var flatListView: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 ForEach(Array(displayFlatFiles.enumerated()), id: \.element.id) { index, file in
                     fileRow(for: file, index: index)
+                    if index < displayFlatFiles.count - 1 {
+                        Hairline().opacity(0.4)
+                    }
                 }
             }
-            .padding(.horizontal, 8)
         }
     }
-
-    // MARK: - File Row
 
     @ViewBuilder
     private func fileRow(for file: ScannedFileInfo, index: Int) -> some View {
@@ -222,9 +231,7 @@ struct CategoryDetailView: View {
             isSelected: isSelected,
             isClone: isClone,
             index: index,
-            onToggleSelection: {
-                toggleSelection(file: file)
-            },
+            onToggleSelection: { toggleSelection(file: file) },
             onRevealInFinder: {
                 NSWorkspace.shared.selectFile(file.url.path, inFileViewerRootedAtPath: file.parentPath)
             }
@@ -232,7 +239,7 @@ struct CategoryDetailView: View {
         .equatable()
     }
 
-    // MARK: - Selection (incremental — O(1) per toggle, not O(n))
+    // MARK: Selection
 
     private func toggleSelection(file: ScannedFileInfo) {
         if viewModel.selectedItems.contains(file.id) {
@@ -250,11 +257,8 @@ struct CategoryDetailView: View {
     }
 
     private func selectFiles(ids: [UUID], files: [ScannedFileInfo]) {
-        // Build new set in one shot, then assign (single @Observable mutation)
         var updated = viewModel.selectedItems
-        for id in ids {
-            updated.insert(id)
-        }
+        for id in ids { updated.insert(id) }
         viewModel.selectedItems = updated
         recomputeSelectionFromScratch()
     }
@@ -262,9 +266,7 @@ struct CategoryDetailView: View {
     private func selectAll() {
         let allFiles = viewModel.files(for: category)
         var updated = viewModel.selectedItems
-        for file in allFiles {
-            updated.insert(file.id)
-        }
+        for file in allFiles { updated.insert(file.id) }
         viewModel.selectedItems = updated
         localSelectedCount = allFiles.count
         localSelectedSize = allFiles.reduce(0) { $0 + $1.allocatedSize }
@@ -273,39 +275,34 @@ struct CategoryDetailView: View {
     private func deselectAll() {
         let allFiles = viewModel.files(for: category)
         var updated = viewModel.selectedItems
-        for file in allFiles {
-            updated.remove(file.id)
-        }
+        for file in allFiles { updated.remove(file.id) }
         viewModel.selectedItems = updated
         localSelectedCount = 0
         localSelectedSize = 0
     }
 
-    /// Full recompute — only called after deletion or bulk select where incremental is impractical
     private func recomputeSelectionFromScratch() {
         let allFiles = viewModel.files(for: category)
         var count = 0
         var size: Int64 = 0
-        for file in allFiles {
-            if viewModel.selectedItems.contains(file.id) {
-                count += 1
-                size += file.allocatedSize
-            }
+        for file in allFiles where viewModel.selectedItems.contains(file.id) {
+            count += 1
+            size += file.allocatedSize
         }
         localSelectedCount = count
         localSelectedSize = size
     }
 
-    // MARK: - Toolbar
+    // MARK: Toolbar pieces
 
     private var sortMenu: some View {
         Menu {
             Section("Size") {
                 Button { sortOrder = .sizeDescending } label: {
-                    Label("Largest First", systemImage: sortOrder == .sizeDescending ? "checkmark" : "")
+                    Label("Largest first", systemImage: sortOrder == .sizeDescending ? "checkmark" : "")
                 }
                 Button { sortOrder = .sizeAscending } label: {
-                    Label("Smallest First", systemImage: sortOrder == .sizeAscending ? "checkmark" : "")
+                    Label("Smallest first", systemImage: sortOrder == .sizeAscending ? "checkmark" : "")
                 }
             }
             Section("Name") {
@@ -316,17 +313,26 @@ struct CategoryDetailView: View {
                     Label("Z to A", systemImage: sortOrder == .nameDescending ? "checkmark" : "")
                 }
             }
-            Section("Date Accessed") {
+            Section("Accessed") {
                 Button { sortOrder = .dateOldest } label: {
-                    Label("Oldest First", systemImage: sortOrder == .dateOldest ? "checkmark" : "")
+                    Label("Oldest", systemImage: sortOrder == .dateOldest ? "checkmark" : "")
                 }
                 Button { sortOrder = .dateNewest } label: {
-                    Label("Newest First", systemImage: sortOrder == .dateNewest ? "checkmark" : "")
+                    Label("Newest", systemImage: sortOrder == .dateNewest ? "checkmark" : "")
                 }
             }
         } label: {
-            Label("Sort", systemImage: "arrow.up.arrow.down")
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.up.arrow.down")
+                    .font(.system(size: 10))
+                Text("Sort")
+                    .font(FUFont.caption)
+            }
+            .foregroundStyle(.secondary)
         }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
     }
 
     private var selectAllButton: some View {
@@ -337,14 +343,14 @@ struct CategoryDetailView: View {
                 selectAll()
             }
         } label: {
-            Label(
-                localSelectedCount == totalFileCount ? "Deselect All" : "Select All",
-                systemImage: localSelectedCount == totalFileCount ? "checkmark.circle" : "circle"
-            )
+            Text(localSelectedCount == totalFileCount ? "Deselect all" : "Select all")
+                .font(FUFont.caption)
+                .foregroundStyle(Color.accentColor)
         }
+        .buttonStyle(.plain)
     }
 
-    // MARK: - Build display data OFF main thread
+    // MARK: Build display data off main thread
 
     private func rebuildDisplayData() async {
         isLoading = true
@@ -354,10 +360,8 @@ struct CategoryDetailView: View {
         let query = searchText
         let limit = pageSize
 
-        // Read files from viewModel (on main actor since viewModel is @MainActor)
         let allFiles = viewModel.files(for: cat)
 
-        // Do ALL heavy work off main thread
         let result: (
             groups: [DisplayGroup],
             flat: [ScannedFileInfo],
@@ -367,7 +371,6 @@ struct CategoryDetailView: View {
         ) = await Task.detached(priority: .userInitiated) {
             var filtered = allFiles
 
-            // Search filter
             if !query.isEmpty {
                 filtered = filtered.filter {
                     $0.fileName.localizedCaseInsensitiveContains(query) ||
@@ -380,7 +383,6 @@ struct CategoryDetailView: View {
             var totalSize: Int64 = 0
             for f in filtered { totalSize += f.allocatedSize }
 
-            // Check for multiple sources (early exit)
             var sourceSet = Set<String>()
             for f in filtered {
                 sourceSet.insert(f.source ?? "Other")
@@ -389,36 +391,30 @@ struct CategoryDetailView: View {
             let hasMultiple = sourceSet.count > 1
 
             if hasMultiple {
-                // Group by source
                 var groups: [String: [ScannedFileInfo]] = [:]
                 for file in filtered {
-                    let source = file.source ?? "Other"
-                    groups[source, default: []].append(file)
+                    groups[file.source ?? "Other", default: []].append(file)
                 }
 
                 let displayGroups: [DisplayGroup] = groups.map { key, value in
-                    // Sort within group
                     let sorted = Self.sortFiles(value, by: sort)
                     let preview = Array(sorted.prefix(limit))
                     let groupSize = value.reduce(0 as Int64) { $0 + $1.allocatedSize }
-                    let allIDs = value.map(\.id)
                     return DisplayGroup(
                         id: key, source: key,
                         fileCount: value.count, totalSize: groupSize,
-                        previewFiles: preview, allFileIDs: allIDs
+                        previewFiles: preview, allFileIDs: value.map(\.id)
                     )
                 }.sorted { $0.totalSize > $1.totalSize }
 
                 return (displayGroups, [], true, totalCount, totalSize)
             } else {
-                // Flat — sort and take first page
                 let sorted = Self.sortFiles(filtered, by: sort)
                 let page = Array(sorted.prefix(limit))
                 return ([], page, false, totalCount, totalSize)
             }
         }.value
 
-        // Single main-thread update
         displayGroups = result.groups
         displayFlatFiles = result.flat
         hasMultipleSources = result.multi
@@ -426,30 +422,22 @@ struct CategoryDetailView: View {
         totalSize = result.size
         isLoading = false
 
-        // Recompute selection state from current viewModel
         recomputeSelectionFromScratch()
     }
 
-    /// Sort files — nonisolated static so it can run on any thread
     private nonisolated static func sortFiles(_ files: [ScannedFileInfo], by order: SortOrder) -> [ScannedFileInfo] {
         switch order {
-        case .sizeDescending:
-            return files.sorted { $0.allocatedSize > $1.allocatedSize }
-        case .sizeAscending:
-            return files.sorted { $0.allocatedSize < $1.allocatedSize }
-        case .nameAscending:
-            return files.sorted { $0.fileName.localizedCompare($1.fileName) == .orderedAscending }
-        case .nameDescending:
-            return files.sorted { $0.fileName.localizedCompare($1.fileName) == .orderedDescending }
-        case .dateOldest:
-            return files.sorted { ($0.lastAccessDate ?? .distantPast) < ($1.lastAccessDate ?? .distantPast) }
-        case .dateNewest:
-            return files.sorted { ($0.lastAccessDate ?? .distantPast) > ($1.lastAccessDate ?? .distantPast) }
+        case .sizeDescending: return files.sorted { $0.allocatedSize > $1.allocatedSize }
+        case .sizeAscending:  return files.sorted { $0.allocatedSize < $1.allocatedSize }
+        case .nameAscending:  return files.sorted { $0.fileName.localizedCompare($1.fileName) == .orderedAscending }
+        case .nameDescending: return files.sorted { $0.fileName.localizedCompare($1.fileName) == .orderedDescending }
+        case .dateOldest:     return files.sorted { ($0.lastAccessDate ?? .distantPast) < ($1.lastAccessDate ?? .distantPast) }
+        case .dateNewest:     return files.sorted { ($0.lastAccessDate ?? .distantPast) > ($1.lastAccessDate ?? .distantPast) }
         }
     }
 }
 
-// MARK: - Sort/Search Key for .task(id:)
+// MARK: - Sort/Search Key
 
 private struct SortSearchKey: Equatable {
     let sort: SortOrder
@@ -465,57 +453,7 @@ enum SortOrder: Equatable {
     case dateOldest, dateNewest
 }
 
-// MARK: - Category Header
-
-struct CategoryHeader: View {
-    let category: FileCategory
-    let totalFiles: Int
-    let totalSize: Int64
-    let selectedCount: Int
-    let selectedSize: Int64
-
-    private var themeColor: Color { category.themeColor }
-
-    var body: some View {
-        HStack {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(themeColor.opacity(0.12))
-                    .frame(width: 44, height: 44)
-                Image(systemName: category.iconName)
-                    .font(.title2)
-                    .foregroundStyle(themeColor)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("\(totalFiles) files")
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                Text(ByteFormatter.format(totalSize))
-                    .font(.title2)
-                    .fontWeight(.bold)
-                    .foregroundStyle(themeColor)
-            }
-
-            Spacer()
-
-            if selectedCount > 0 {
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("\(selectedCount) selected")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Text(ByteFormatter.format(selectedSize))
-                        .font(.headline)
-                        .foregroundStyle(Color.accentColor)
-                }
-            }
-        }
-        .padding()
-        .background(Color(.controlBackgroundColor))
-    }
-}
-
-// MARK: - Source Section Header
+// MARK: - Source section header
 
 struct SourceSectionHeader: View {
     let source: String
@@ -527,48 +465,47 @@ struct SourceSectionHeader: View {
     let onSelectAll: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             Button(action: onToggle) {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                        .font(.caption)
+                        .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.tertiary)
-                        .frame(width: 12)
+                        .frame(width: 10)
                     Text(source)
-                        .font(.headline)
+                        .font(FUFont.bodyMedium)
                         .foregroundStyle(.primary)
                 }
             }
             .buttonStyle(.plain)
+            .help(isCollapsed ? "Expand" : "Collapse")
 
             Spacer()
 
-            Text("\(fileCount) files")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            Text("\(fileCount)")
+                .font(FUFont.monoCaption)
+                .foregroundStyle(.tertiary)
 
             Text(ByteFormatter.format(totalSize))
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .foregroundStyle(color)
+                .font(FUFont.mono)
+                .foregroundStyle(.secondary)
+                .frame(width: 72, alignment: .trailing)
 
-            Button {
-                onSelectAll()
-            } label: {
+            Button(action: onSelectAll) {
                 Image(systemName: "checkmark.circle")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
             }
             .buttonStyle(.plain)
             .help("Select all in \(source)")
         }
+        .padding(.horizontal, 20)
         .padding(.vertical, 8)
-        .padding(.horizontal, 4)
-        .background(Color(.controlBackgroundColor))
+        .overlay(alignment: .bottom) { Hairline().opacity(0.5) }
     }
 }
 
-// MARK: - Selection Action Bar
+// MARK: - Selection action bar
 
 struct SelectionActionBar: View {
     let selectedCount: Int
@@ -578,40 +515,53 @@ struct SelectionActionBar: View {
     let onDeselect: () -> Void
 
     var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(selectedCount) items selected")
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                Text(ByteFormatter.format(selectedSize))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
+        HStack(spacing: 10) {
+            Text("\(selectedCount)")
+                .font(FUFont.bodyMedium)
+                .foregroundStyle(.primary)
+
+            Text("selected")
+                .font(FUFont.caption)
+                .foregroundStyle(.tertiary)
+
+            Text("·")
+                .foregroundStyle(.quaternary)
+
+            Text(ByteFormatter.format(selectedSize))
+                .font(FUFont.mono)
+                .foregroundStyle(Color.accentColor)
 
             Spacer()
 
             if isDeleting {
-                ProgressView()
-                    .scaleEffect(0.8)
-                    .padding(.horizontal)
+                ProgressView().controlSize(.small)
             }
 
             Button("Deselect", action: onDeselect)
-                .buttonStyle(.bordered)
-                .tint(.secondary)
+                .buttonStyle(.plain)
+                .font(FUFont.captionMedium)
+                .foregroundStyle(.secondary)
 
             Button(action: onDelete) {
-                Label("Move to Trash", systemImage: "trash")
+                HStack(spacing: 6) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 11, weight: .medium))
+                    Text("Delete")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color(nsColor: .systemRed))
+                )
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.red)
+            .buttonStyle(.plain)
             .disabled(isDeleting)
         }
-        .padding()
-        .overlay(alignment: .top) {
-            Color(.separatorColor)
-                .frame(height: 1)
-        }
-        .background(Color(.unemphasizedSelectedContentBackgroundColor))
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .background(Color(.windowBackgroundColor))
     }
 }

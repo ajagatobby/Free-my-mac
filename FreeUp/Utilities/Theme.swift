@@ -2,9 +2,9 @@
 //  Theme.swift
 //  FreeUp
 //
-//  Thin design-token layer over system colors.
-//  Uses NSColor/Color system APIs so the app inherits macOS appearance
-//  (dark mode, accent color, vibrancy) automatically.
+//  Minimal design tokens — Raycast/Linear-inspired.
+//  Almost everything uses system semantic colors; category identity is
+//  reduced to a tiny colored dot rather than a full color fill.
 //
 
 import SwiftUI
@@ -12,34 +12,29 @@ import SwiftUI
 // MARK: - FUColors
 
 enum FUColors {
-    // Backgrounds — system materials
+    // Backgrounds
     static let bg = Color(.windowBackgroundColor)
     static let bgElevated = Color(.controlBackgroundColor)
-    static let bgCard = Color(.unemphasizedSelectedContentBackgroundColor)
-    static let bgHover = Color(.quaternaryLabelColor)
+    static let bgHover = Color(.quaternaryLabelColor).opacity(0.5)
 
-    // Text — system semantic colors
+    // Text
     static let textPrimary = Color(.labelColor)
     static let textSecondary = Color(.secondaryLabelColor)
     static let textTertiary = Color(.tertiaryLabelColor)
 
-    // Accent — the user's system accent, with an app-specific teal fallback
+    // Accent — the user's system accent
     static let accent = Color.accentColor
     static let accentDim = Color.accentColor.opacity(0.12)
 
-    // Gradients — kept minimal, only for the scan button and progress
-    static let accentGradient = LinearGradient(
-        colors: [.accentColor, .accentColor.opacity(0.7)],
-        startPoint: .top, endPoint: .bottom
-    )
-    static let scanGradient = LinearGradient(
-        colors: [.accentColor, .accentColor.opacity(0.6)],
-        startPoint: .leading, endPoint: .trailing
-    )
+    // Borders — hairline separators
+    static let border = Color(.separatorColor)
+    static let borderSubtle = Color(.separatorColor).opacity(0.5)
 
-    // Category colors — NSColor-backed so they adapt to appearance
-    // (system tints adjust luminance in light vs dark mode so they stay
-    // readable on whatever background they land on).
+    // Danger
+    static let danger = Color(nsColor: .systemRed)
+    static let dangerDim = Color(nsColor: .systemRed).opacity(0.12)
+
+    // Category dots — muted NSColor tints. Used only for the 6px dot in lists.
     static let cacheColor = Color(nsColor: .systemOrange)
     static let logsColor = Color(nsColor: .systemGray)
     static let systemJunkColor = Color(nsColor: .systemRed)
@@ -48,24 +43,34 @@ enum FUColors {
     static let duplicatesColor = Color(nsColor: .systemTeal)
     static let photosColor = Color(nsColor: .systemPink)
     static let videosColor = Color(nsColor: .systemPurple)
-    // Audio gets yellow (not orange again) so it doesn't collide with cache
     static let audioColor = Color(nsColor: .systemYellow)
-    // Documents gets indigo so it doesn't collide with downloads (blue)
     static let documentsColor = Color(nsColor: .systemIndigo)
     static let archivesColor = Color(nsColor: .systemBrown)
-    // Orphaned app data gets mint so it doesn't collide with documents
     static let orphanedColor = Color(nsColor: .systemMint)
-
-    // Borders — system separator
-    static let border = Color(.separatorColor)
-    static let borderSubtle = Color(.separatorColor).opacity(0.5)
-
-    // Danger
-    static let danger = Color.red
-    static let dangerDim = Color.red.opacity(0.12)
 }
 
-// MARK: - Category Color Extension
+// MARK: - Fonts
+
+enum FUFont {
+    static let body = Font.system(size: 13)
+    static let bodyMedium = Font.system(size: 13, weight: .medium)
+    static let caption = Font.system(size: 11)
+    static let captionMedium = Font.system(size: 11, weight: .medium)
+    static let label = Font.system(size: 10, weight: .medium)
+
+    // Numeric — always tabular monospace
+    static let mono = Font.system(size: 13, design: .monospaced).monospacedDigit()
+    static let monoCaption = Font.system(size: 11, design: .monospaced).monospacedDigit()
+
+    // Hero number — rounded mono for warmth, tabular digits for no-jitter updates
+    static let hero = Font.system(size: 64, weight: .semibold, design: .rounded).monospacedDigit()
+    static let heroSmall = Font.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit()
+
+    // Caps/tracking label (uppercase small label)
+    static let eyebrow = Font.system(size: 10, weight: .semibold).width(.expanded)
+}
+
+// MARK: - Category color extension
 
 extension FileCategory {
     var themeColor: Color {
@@ -88,21 +93,28 @@ extension FileCategory {
     }
 }
 
-// MARK: - Convenience modifier
+// MARK: - Hairline divider
 
-struct FUCardStyle: ViewModifier {
-    var cornerRadius: CGFloat = 8
-    var padding: CGFloat = 12
-
-    func body(content: Content) -> some View {
-        content
-            .padding(padding)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+/// 1px full-width hairline using the system separator color. Use this
+/// everywhere — no heavy Dividers, no 2px strokes.
+struct Hairline: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color(.separatorColor))
+            .frame(height: 1)
     }
 }
 
-extension View {
-    func fuCard(cornerRadius: CGFloat = 8, padding: CGFloat = 12) -> some View {
-        modifier(FUCardStyle(cornerRadius: cornerRadius, padding: padding))
+// MARK: - Category dot
+
+/// 6px dot used to carry category identity without loud color fills.
+struct CategoryDot: View {
+    let color: Color
+    var size: CGFloat = 6
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: size, height: size)
     }
 }
