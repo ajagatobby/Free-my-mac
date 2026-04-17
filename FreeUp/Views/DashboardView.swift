@@ -351,34 +351,6 @@ private struct OverviewPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Top strip — breadcrumb + meta.
-            HStack {
-                Text("OVERVIEW")
-                    .font(FUFont.eyebrow)
-                    .kerning(1.2)
-                    .foregroundStyle(.tertiary)
-                Spacer()
-                if case .completed(let files, _, let dur) = viewModel.scanState {
-                    HStack(spacing: 8) {
-                        Text("\(files) files")
-                            .font(FUFont.monoCaption)
-                            .foregroundStyle(.tertiary)
-                        Text("·").foregroundStyle(.quaternary)
-                        Text(Self.formatDuration(dur))
-                            .font(FUFont.monoCaption)
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-                if isScanning {
-                    InlineScanProgress(state: viewModel.scanState, filesScanned: viewModel.totalFilesScanned)
-                }
-            }
-            .padding(.horizontal, 24)
-            .padding(.top, 14)
-            .padding(.bottom, 12)
-
-            Hairline()
-
             ScrollView {
                 VStack(spacing: 0) {
                     hero
@@ -479,10 +451,13 @@ private struct OverviewPane: View {
                 .font(FUFont.hero)
                 .foregroundStyle(.primary)
                 .monospacedDigit()
-                .contentTransition(.numericText())
+                // Animate digit rolls ONLY after the scan finishes. During
+                // scanning the value updates many times per second and
+                // animations stack into a blurry ghost.
+                .contentTransition(isScanning ? .identity : .numericText())
+                .animation(isScanning ? nil : .snappy(duration: 0.25), value: reclaimable)
                 // Fixed width — layout stays still while digits roll.
                 .frame(width: 420, alignment: .center)
-                .animation(.snappy(duration: 0.25), value: reclaimable)
 
             if reclaimable > 0 {
                 Button(action: onClean) {
@@ -494,8 +469,8 @@ private struct OverviewPane: View {
                         Text(ByteFormatter.format(reclaimable))
                             .font(.system(size: 13, weight: .semibold, design: .monospaced))
                             .monospacedDigit()
-                            .contentTransition(.numericText())
-                            .animation(.snappy(duration: 0.25), value: reclaimable)
+                            .contentTransition(isScanning ? .identity : .numericText())
+                            .animation(isScanning ? nil : .snappy(duration: 0.25), value: reclaimable)
                             .frame(width: 80, alignment: .trailing)
                         KBDPill("⏎")
                     }
